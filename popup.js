@@ -1,4 +1,4 @@
-import { runSearchPhase } from "./src/runner.js";
+import { runSearchPhase, runInsertPhase, formatReport } from "./src/runner.js";
 import { getAuthToken } from "./src/auth.js";
 import { listMyPlaylists } from "./src/ytApi.js";
 
@@ -15,6 +15,11 @@ const newTitleEl = document.getElementById("new-title");
 const newPrivacyEl = document.getElementById("new-privacy");
 const existingPlaylistEl = document.getElementById("existing-playlist");
 const loadPlaylistsBtn = document.getElementById("load-playlists-btn");
+const commitSection = document.getElementById("commit-section");
+const addAllBtn = document.getElementById("add-all-btn");
+const reportSection = document.getElementById("report-section");
+const reportTextEl = document.getElementById("report-text");
+const copyReportBtn = document.getElementById("copy-report-btn");
 
 function renderRow(i, entry) {
   const tr = document.createElement("tr");
@@ -131,9 +136,66 @@ goBtn.addEventListener("click", async () => {
     const lowConf = results.filter((r) => r.lowConfidence).length;
     statusEl.textContent = `${results.length} songs matched (${lowConf} low-confidence, ${noMatch} no match).`;
     window.__lastResults = results; // exposed for the next task's insert phase
+    commitSection.hidden = false;
   } catch (e) {
     statusEl.textContent = `Error: ${e.message}`;
   } finally {
     goBtn.disabled = false;
   }
+});
+
+addAllBtn.addEventListener("click", async () => {
+  const target = getTarget();
+  if (target.mode === "create" && !target.title) {
+    statusEl.textContent = "Enter a playlist name.";
+    return;
+  }
+  if (target.mode === "existing" && !target.playlistId) {
+    statusEl.textContent = "Pick an existing playlist (or click Load my playlists).";
+    return;
+  }
+  const entries = window.__lastResults ?? [];
+  if (!entries.length) {
+    statusEl.textContent = "Search first.";
+    return;
+  }
+
+  addAllBtn.disabled = true;
+  statusEl.textContent = "Signing in...";
+
+  try {
+    const token = await getAuthToken({ interactive: true });
+    statusEl.textContent = "Adding songs...";
+    const { report } = await runInsertPhase({
+      token,
+      target,
+      entries,
+      onProgress: (i, total, entry, meta) => {
+        const suffix =
+          meta.status === "added" ? "✓"
+          : meta.status === "already" ? "already in playlist"
+          : meta.status === "no-match" ? "no match — skipping"
+          : meta.status === "failed" ? `failed: ${meta.reason}`
+          : meta.status;
+        progressLine.textContent = `Adding ${i} / ${total} — ${entry.query} — ${suffix}`;
+      },
+    });
+    reportTextEl.textContent = formatReport(report, entries);
+    reportSection.hidden = false;
+    statusEl.textContent = "Done.";
+  } catch (e) {
+    if (e.quotaExceeded) {
+      statusEl.textContent = e.message + ". Retry tomorrow.";
+    } else {
+      statusEl.textContent = `Error: ${e.message}`;
+    }
+  } finally {
+    addAllBtn.disabled = false;
+  }
+});
+
+copyReportBtn.addEventListener("click", async () => {
+  await navigator.clipboard.writeText(reportTextEl.textContent);
+  copyReportBtn.textContent = "Copied!";
+  setTimeout(() => (copyReportBtn.textContent = "Copy report"), 1500);
 });
