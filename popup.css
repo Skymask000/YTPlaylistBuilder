@@ -15,3 +15,37 @@ h1 {
   font-size: 15px;
   margin: 0 0 8px 0;
 }
+section {
+  margin: 12px 0;
+}
+textarea {
+  width: 100%;
+  box-sizing: border-box;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 12px;
+  resize: vertical;
+}
+label {
+  display: block;
+  margin-bottom: 4px;
+  font-weight: 500;
+}
+button {
+  padding: 6px 12px;
+  cursor: pointer;
+  margin-top: 6px;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+th, td {
+  padding: 4px 6px;
+  text-align: left;
+  border-bottom: 1px solid rgba(128, 128, 128, 0.3);
+  vertical-align: top;
+}
+tr.low-confidence td { color: #b26b00; }
+tr.no-match td { color: #a00; }
+#status { min-height: 1em; }
