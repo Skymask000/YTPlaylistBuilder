@@ -136,6 +136,7 @@ goBtn.addEventListener("click", async () => {
     const lowConf = results.filter((r) => r.lowConfidence).length;
     statusEl.textContent = `${results.length} songs matched (${lowConf} low-confidence, ${noMatch} no match).`;
     window.__lastResults = results; // exposed for the next task's insert phase
+    reportSection.hidden = true;
     commitSection.hidden = false;
   } catch (e) {
     statusEl.textContent = `Error: ${e.message}`;
@@ -195,7 +196,11 @@ addAllBtn.addEventListener("click", async () => {
 });
 
 copyReportBtn.addEventListener("click", async () => {
-  await navigator.clipboard.writeText(reportTextEl.textContent);
-  copyReportBtn.textContent = "Copied!";
+  try {
+    await navigator.clipboard.writeText(reportTextEl.textContent);
+    copyReportBtn.textContent = "Copied!";
+  } catch (e) {
+    copyReportBtn.textContent = "Copy failed";
+  }
   setTimeout(() => (copyReportBtn.textContent = "Copy report"), 1500);
 });
