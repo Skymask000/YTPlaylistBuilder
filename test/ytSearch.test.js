@@ -168,3 +168,16 @@ test("extractResults pulls videoId/title/channel/duration from ytInitialData JSO
 test("extractResults returns [] when ytInitialData is missing", () => {
   assert.deepEqual(extractResults("<html>no data here</html>"), []);
 });
+
+test("pickBest does not reject word-boundary collisions like 'delivered' for 'live'", () => {
+  const results = [
+    R({ videoId: "collision", title: "Songs Delivered Right To You" }),
+  ];
+  const pick = pickBest(results, {
+    artist: "Some Artist",
+    song: "Something",
+    query: "Some Artist - Something",
+  });
+  assert.equal(pick.videoId, "collision");
+  assert.equal(pick.lowConfidence, false);
+});

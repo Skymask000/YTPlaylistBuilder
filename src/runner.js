@@ -39,6 +39,19 @@ export async function runInsertPhase({
     playlistId = target.playlistId;
   }
 
+  // Persist the playlistId immediately so a first-insert failure is recoverable.
+  if (target.mode === "create") {
+    await chrome.storage.local.set({
+      pendingRun: {
+        playlistId,
+        entries,
+        processedIndex: startIndex - 1,
+        target: { mode: "existing", playlistId },
+        report: seedReport ?? { added: 0, alreadyInPlaylist: 0, noMatch: 0, failed: [] },
+      },
+    });
+  }
+
   const report = seedReport
     ? { ...seedReport, failed: [...seedReport.failed] }
     : { added: 0, alreadyInPlaylist: 0, noMatch: 0, failed: [] };

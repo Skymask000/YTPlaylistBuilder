@@ -1,5 +1,5 @@
 import { runSearchPhase, runInsertPhase, formatReport } from "./src/runner.js";
-import { getAuthToken } from "./src/auth.js";
+import { getAuthToken, NotSignedInError } from "./src/auth.js";
 import { listMyPlaylists } from "./src/ytApi.js";
 
 const inputEl = document.getElementById("songs-input");
@@ -85,7 +85,8 @@ loadPlaylistsBtn.addEventListener("click", async () => {
     }
     loadPlaylistsBtn.textContent = "Reload";
   } catch (e) {
-    statusEl.textContent = `Sign-in error: ${e.message}`;
+    const prefix = e instanceof NotSignedInError ? "Sign-in error" : "API error";
+    statusEl.textContent = `${prefix}: ${e.message}`;
     loadPlaylistsBtn.textContent = "Load my playlists";
   } finally {
     loadPlaylistsBtn.disabled = false;
@@ -255,4 +256,6 @@ copyReportBtn.addEventListener("click", async () => {
   setTimeout(() => (copyReportBtn.textContent = "Copy report"), 1500);
 });
 
-checkPendingRun();
+checkPendingRun().catch((e) => {
+  statusEl.textContent = `Storage error: ${e.message}`;
+});

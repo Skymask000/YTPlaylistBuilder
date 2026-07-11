@@ -58,7 +58,8 @@ function passesRejectFilter(result, query) {
   const title = result.title.toLowerCase();
   const q = query.toLowerCase();
   for (const word of REJECT_WORDS) {
-    if (title.includes(word) && !q.includes(word)) return false;
+    const wordRe = new RegExp(`\\b${word.replace(/ /g, "\\s+")}\\b`);
+    if (wordRe.test(title) && !wordRe.test(q)) return false;
   }
   if (result.durationSeconds > 0) {
     if (result.durationSeconds < MIN_DURATION) return false;
