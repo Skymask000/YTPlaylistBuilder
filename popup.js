@@ -21,6 +21,11 @@ const reportSection = document.getElementById("report-section");
 const reportTextEl = document.getElementById("report-text");
 const copyReportBtn = document.getElementById("copy-report-btn");
 
+const resumeSection = document.getElementById("resume-section");
+const resumeMessage = document.getElementById("resume-message");
+const resumeBtn = document.getElementById("resume-btn");
+const discardBtn = document.getElementById("discard-btn");
+
 function renderRow(i, entry) {
   const tr = document.createElement("tr");
   const status = entry.noMatch
@@ -100,6 +105,51 @@ function getTarget() {
   return {
     mode: "existing",
     playlistId: existingPlaylistEl.value,
+  };
+}
+
+async function checkPendingRun() {
+  const { pendingRun } = await chrome.storage.local.get("pendingRun");
+  if (!pendingRun) return;
+  const remaining = pendingRun.entries.length - (pendingRun.lastAddedIndex + 1);
+  resumeMessage.textContent = `Previous run interrupted — ${remaining} of ${pendingRun.entries.length} remaining.`;
+  resumeSection.hidden = false;
+
+  resumeBtn.onclick = async () => {
+    resumeBtn.disabled = true;
+    discardBtn.disabled = true;
+    statusEl.textContent = "Resuming — signing in...";
+    try {
+      const token = await getAuthToken({ interactive: true });
+      const { report } = await runInsertPhase({
+        token,
+        target: pendingRun.target,
+        entries: pendingRun.entries,
+        startIndex: pendingRun.lastAddedIndex + 1,
+        seedReport: pendingRun.report ?? null,
+        onProgress: (i, total, entry, meta) => {
+          progressSection.hidden = false;
+          progressLine.textContent = `Resuming ${i} / ${total} — ${entry.query} — ${meta.status}`;
+        },
+      });
+      reportTextEl.textContent = formatReport(report, pendingRun.entries);
+      reportSection.hidden = false;
+      resumeSection.hidden = true;
+      statusEl.textContent = "Resume complete.";
+    } catch (e) {
+      statusEl.textContent = e.quotaExceeded
+        ? e.message + ". Retry tomorrow."
+        : `Error: ${e.message}`;
+    } finally {
+      resumeBtn.disabled = false;
+      discardBtn.disabled = false;
+    }
+  };
+
+  discardBtn.onclick = async () => {
+    await chrome.storage.local.remove("pendingRun");
+    resumeSection.hidden = true;
+    statusEl.textContent = "Discarded previous run.";
   };
 }
 
@@ -204,3 +254,5 @@ copyReportBtn.addEventListener("click", async () => {
   }
   setTimeout(() => (copyReportBtn.textContent = "Copy report"), 1500);
 });
+
+checkPendingRun();

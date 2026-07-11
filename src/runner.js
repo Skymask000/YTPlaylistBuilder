@@ -21,27 +21,51 @@ export async function runSearchPhase(text, onProgress) {
   return results;
 }
 
-export async function runInsertPhase({ token, target, entries, onProgress, startIndex = 0 }) {
+export async function runInsertPhase({
+  token,
+  target,
+  entries,
+  onProgress,
+  startIndex = 0,
+  seedReport = null,
+}) {
   let playlistId;
   if (target.mode === "create") {
-    if (startIndex === 0) {
-      playlistId = await createPlaylist(token, {
-        title: target.title,
-        privacyStatus: target.privacyStatus,
-      });
-    } else {
-      playlistId = target.existingPlaylistId; // resume path passes the existing id here
-    }
+    playlistId = await createPlaylist(token, {
+      title: target.title,
+      privacyStatus: target.privacyStatus,
+    });
   } else {
     playlistId = target.playlistId;
   }
 
-  const report = { added: 0, alreadyInPlaylist: 0, noMatch: 0, failed: [], lastAddedIndex: startIndex - 1 };
+  const report = seedReport
+    ? { ...seedReport, failed: [...seedReport.failed] }
+    : { added: 0, alreadyInPlaylist: 0, noMatch: 0, failed: [], lastAddedIndex: startIndex - 1 };
+
+  async function persist(i) {
+    await chrome.storage.local.set({
+      pendingRun: {
+        playlistId,
+        entries,
+        lastAddedIndex: i,
+        target: { mode: "existing", playlistId },
+        report: {
+          added: report.added,
+          alreadyInPlaylist: report.alreadyInPlaylist,
+          noMatch: report.noMatch,
+          failed: report.failed,
+          lastAddedIndex: i,
+        },
+      },
+    });
+  }
 
   for (let i = startIndex; i < entries.length; i++) {
     const entry = entries[i];
     if (entry.noMatch || !entry.videoId) {
       report.noMatch++;
+      await persist(report.lastAddedIndex); // lastAddedIndex unchanged; still refresh report state
       if (onProgress) onProgress(i + 1, entries.length, entry, { status: "no-match" });
       continue;
     }
@@ -49,10 +73,12 @@ export async function runInsertPhase({ token, target, entries, onProgress, start
     if (res.ok) {
       report.added++;
       report.lastAddedIndex = i;
+      await persist(i);
       if (onProgress) onProgress(i + 1, entries.length, entry, { status: "added" });
     } else if (res.alreadyInPlaylist) {
       report.alreadyInPlaylist++;
       report.lastAddedIndex = i;
+      await persist(i);
       if (onProgress) onProgress(i + 1, entries.length, entry, { status: "already" });
     } else if (res.quotaExceeded) {
       if (onProgress) onProgress(i + 1, entries.length, entry, { status: "quota" });
@@ -63,10 +89,12 @@ export async function runInsertPhase({ token, target, entries, onProgress, start
       });
     } else {
       report.failed.push({ query: entry.query, reason: res.reason });
+      await persist(report.lastAddedIndex);
       if (onProgress) onProgress(i + 1, entries.length, entry, { status: "failed", reason: res.reason });
     }
   }
 
+  await chrome.storage.local.remove("pendingRun");
   return { playlistId, report };
 }
 

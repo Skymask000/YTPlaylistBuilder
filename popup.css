@@ -54,3 +54,9 @@ legend { font-weight: 500; padding: 0 4px; }
 #create-fields, #existing-fields { margin: 4px 0 4px 20px; display: flex; gap: 6px; flex-wrap: wrap; }
 #create-fields[hidden], #existing-fields[hidden] { display: none; }
 #new-title { flex: 1; min-width: 200px; padding: 4px 6px; }
+#resume-section {
+  background: rgba(255, 200, 0, 0.15);
+  border: 1px solid rgba(255, 180, 0, 0.5);
+  padding: 8px 10px;
+  margin-bottom: 10px;
+}
