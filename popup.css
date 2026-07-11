@@ -1,0 +1,17 @@
+:root {
+  color-scheme: light dark;
+  font-family: system-ui, sans-serif;
+  font-size: 13px;
+}
+body {
+  margin: 0;
+  min-width: 480px;
+  min-height: 360px;
+}
+#app {
+  padding: 12px 14px;
+}
+h1 {
+  font-size: 15px;
+  margin: 0 0 8px 0;
+}
