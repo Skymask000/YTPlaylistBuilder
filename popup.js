@@ -111,7 +111,7 @@ function getTarget() {
 async function checkPendingRun() {
   const { pendingRun } = await chrome.storage.local.get("pendingRun");
   if (!pendingRun) return;
-  const remaining = pendingRun.entries.length - (pendingRun.lastAddedIndex + 1);
+  const remaining = pendingRun.entries.length - (pendingRun.processedIndex + 1);
   resumeMessage.textContent = `Previous run interrupted — ${remaining} of ${pendingRun.entries.length} remaining.`;
   resumeSection.hidden = false;
 
@@ -125,7 +125,7 @@ async function checkPendingRun() {
         token,
         target: pendingRun.target,
         entries: pendingRun.entries,
-        startIndex: pendingRun.lastAddedIndex + 1,
+        startIndex: pendingRun.processedIndex + 1,
         seedReport: pendingRun.report ?? null,
         onProgress: (i, total, entry, meta) => {
           progressSection.hidden = false;

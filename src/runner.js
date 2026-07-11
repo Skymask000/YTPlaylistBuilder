@@ -41,21 +41,22 @@ export async function runInsertPhase({
 
   const report = seedReport
     ? { ...seedReport, failed: [...seedReport.failed] }
-    : { added: 0, alreadyInPlaylist: 0, noMatch: 0, failed: [], lastAddedIndex: startIndex - 1 };
+    : { added: 0, alreadyInPlaylist: 0, noMatch: 0, failed: [] };
 
-  async function persist(i) {
+  let processedIndex = startIndex - 1;
+
+  async function persist() {
     await chrome.storage.local.set({
       pendingRun: {
         playlistId,
         entries,
-        lastAddedIndex: i,
+        processedIndex,
         target: { mode: "existing", playlistId },
         report: {
           added: report.added,
           alreadyInPlaylist: report.alreadyInPlaylist,
           noMatch: report.noMatch,
           failed: report.failed,
-          lastAddedIndex: i,
         },
       },
     });
@@ -65,20 +66,21 @@ export async function runInsertPhase({
     const entry = entries[i];
     if (entry.noMatch || !entry.videoId) {
       report.noMatch++;
-      await persist(report.lastAddedIndex); // lastAddedIndex unchanged; still refresh report state
+      processedIndex = i;
+      await persist();
       if (onProgress) onProgress(i + 1, entries.length, entry, { status: "no-match" });
       continue;
     }
     const res = await addVideoToPlaylist(token, playlistId, entry.videoId);
     if (res.ok) {
       report.added++;
-      report.lastAddedIndex = i;
-      await persist(i);
+      processedIndex = i;
+      await persist();
       if (onProgress) onProgress(i + 1, entries.length, entry, { status: "added" });
     } else if (res.alreadyInPlaylist) {
       report.alreadyInPlaylist++;
-      report.lastAddedIndex = i;
-      await persist(i);
+      processedIndex = i;
+      await persist();
       if (onProgress) onProgress(i + 1, entries.length, entry, { status: "already" });
     } else if (res.quotaExceeded) {
       if (onProgress) onProgress(i + 1, entries.length, entry, { status: "quota" });
@@ -89,7 +91,8 @@ export async function runInsertPhase({
       });
     } else {
       report.failed.push({ query: entry.query, reason: res.reason });
-      await persist(report.lastAddedIndex);
+      processedIndex = i;
+      await persist();
       if (onProgress) onProgress(i + 1, entries.length, entry, { status: "failed", reason: res.reason });
     }
   }
