@@ -15,6 +15,34 @@
         <button id="go-btn">Search YouTube</button>
       </section>
 
+      <section id="target-section">
+        <fieldset>
+          <legend>Playlist target</legend>
+          <label>
+            <input type="radio" name="target" value="create" checked />
+            Create new
+          </label>
+          <div id="create-fields">
+            <input type="text" id="new-title" placeholder="New playlist name" />
+            <select id="new-privacy">
+              <option value="unlisted" selected>Unlisted</option>
+              <option value="public">Public</option>
+              <option value="private">Private</option>
+            </select>
+          </div>
+          <label>
+            <input type="radio" name="target" value="existing" />
+            Add to existing
+          </label>
+          <div id="existing-fields" hidden>
+            <select id="existing-playlist">
+              <option value="">— sign in to load your playlists —</option>
+            </select>
+            <button id="load-playlists-btn">Load my playlists</button>
+          </div>
+        </fieldset>
+      </section>
+
       <section id="progress-section" hidden>
         <p id="progress-line">Searching...</p>
       </section>

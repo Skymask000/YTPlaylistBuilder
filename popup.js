@@ -1,4 +1,6 @@
 import { runSearchPhase } from "./src/runner.js";
+import { getAuthToken } from "./src/auth.js";
+import { listMyPlaylists } from "./src/ytApi.js";
 
 const inputEl = document.getElementById("songs-input");
 const goBtn = document.getElementById("go-btn");
@@ -7,6 +9,12 @@ const progressLine = document.getElementById("progress-line");
 const resultsSection = document.getElementById("results-section");
 const resultsBody = document.querySelector("#results-table tbody");
 const statusEl = document.getElementById("status");
+const createFields = document.getElementById("create-fields");
+const existingFields = document.getElementById("existing-fields");
+const newTitleEl = document.getElementById("new-title");
+const newPrivacyEl = document.getElementById("new-privacy");
+const existingPlaylistEl = document.getElementById("existing-playlist");
+const loadPlaylistsBtn = document.getElementById("load-playlists-btn");
 
 function renderRow(i, entry) {
   const tr = document.createElement("tr");
@@ -31,6 +39,63 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
   }[c]));
+}
+
+// Wire the radio-mode toggle
+for (const radio of document.querySelectorAll('input[name="target"]')) {
+  radio.addEventListener("change", (e) => {
+    const mode = e.target.value;
+    createFields.hidden = mode !== "create";
+    existingFields.hidden = mode !== "existing";
+  });
+}
+// Initial state — create mode is checked so hide existing block:
+existingFields.hidden = true;
+
+// Wire the "Load my playlists" button
+loadPlaylistsBtn.addEventListener("click", async () => {
+  loadPlaylistsBtn.disabled = true;
+  loadPlaylistsBtn.textContent = "Loading...";
+  try {
+    const token = await getAuthToken({ interactive: true });
+    const playlists = await listMyPlaylists(token);
+    existingPlaylistEl.innerHTML = "";
+    if (!playlists.length) {
+      const opt = document.createElement("option");
+      opt.value = "";
+      opt.textContent = "— you have no playlists —";
+      existingPlaylistEl.appendChild(opt);
+    } else {
+      for (const p of playlists) {
+        const opt = document.createElement("option");
+        opt.value = p.id;
+        opt.textContent = `${p.title} (${p.itemCount} items)`;
+        existingPlaylistEl.appendChild(opt);
+      }
+    }
+    loadPlaylistsBtn.textContent = "Reload";
+  } catch (e) {
+    statusEl.textContent = `Sign-in error: ${e.message}`;
+    loadPlaylistsBtn.textContent = "Load my playlists";
+  } finally {
+    loadPlaylistsBtn.disabled = false;
+  }
+});
+
+// Helper to get the target (create or existing playlist)
+function getTarget() {
+  const mode = document.querySelector('input[name="target"]:checked').value;
+  if (mode === "create") {
+    return {
+      mode: "create",
+      title: newTitleEl.value.trim(),
+      privacyStatus: newPrivacyEl.value,
+    };
+  }
+  return {
+    mode: "existing",
+    playlistId: existingPlaylistEl.value,
+  };
 }
 
 goBtn.addEventListener("click", async () => {

@@ -49,3 +49,7 @@ th, td {
 tr.low-confidence td { color: #b26b00; }
 tr.no-match td { color: #a00; }
 #status { min-height: 1em; }
+fieldset { border: 1px solid rgba(128,128,128,0.4); padding: 6px 10px; }
+legend { font-weight: 500; padding: 0 4px; }
+#create-fields, #existing-fields { margin: 4px 0 4px 20px; display: flex; gap: 6px; flex-wrap: wrap; }
+#new-title { flex: 1; min-width: 200px; padding: 4px 6px; }
