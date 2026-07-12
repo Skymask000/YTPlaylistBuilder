@@ -32,14 +32,18 @@ function walkVideoRenderers(node, out) {
   for (const key of Object.keys(node)) walkVideoRenderers(node[key], out);
 }
 
+// Returns:
+//   null   → couldn't find/parse ytInitialData (bot-check page, consent gate, HTML shape drift)
+//   []     → parsed OK but no videoRenderers
+//   [...]  → parsed OK with results
 export function extractResults(html) {
   const m = html.match(YT_INITIAL_DATA_RE);
-  if (!m) return [];
+  if (!m) return null;
   let json;
   try {
     json = JSON.parse(m[1]);
   } catch {
-    return [];
+    return null;
   }
   const out = [];
   walkVideoRenderers(json, out);
@@ -68,6 +72,20 @@ function passesRejectFilter(result, query) {
   return true;
 }
 
+function songTokens(song) {
+  return song
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((t) => t.length >= 3);
+}
+
+function titleMatchesSong(title, song) {
+  const tokens = songTokens(song);
+  if (!tokens.length) return true;
+  const t = title.toLowerCase();
+  return tokens.some((tok) => new RegExp(`\\b${tok}\\b`).test(t));
+}
+
 export function pickBest(results, { artist, song, query }) {
   if (!results.length) {
     return { videoId: null, matchedTitle: "", channelName: "", lowConfidence: false, noMatch: true };
@@ -85,11 +103,12 @@ export function pickBest(results, { artist, song, query }) {
   }
   const preferred = filtered.find((r) => isPreferredChannel(r.channelName, artist));
   const pick = preferred ?? filtered[0];
+  const lowConfidence = !titleMatchesSong(pick.title, song);
   return {
     videoId: pick.videoId,
     matchedTitle: pick.title,
     channelName: pick.channelName,
-    lowConfidence: false,
+    lowConfidence,
     noMatch: false,
   };
 }
@@ -99,9 +118,12 @@ export async function searchYouTube({ artist, song }) {
   const url = `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`;
   const res = await fetch(url, { credentials: "omit" });
   if (!res.ok) {
-    return { videoId: null, matchedTitle: "", channelName: "", lowConfidence: false, noMatch: true };
+    return { videoId: null, matchedTitle: "", channelName: "", lowConfidence: false, noMatch: true, blocked: true };
   }
   const html = await res.text();
   const results = extractResults(html);
+  if (results === null) {
+    return { videoId: null, matchedTitle: "", channelName: "", lowConfidence: false, noMatch: true, blocked: true };
+  }
   return pickBest(results, { artist, song, query });
 }

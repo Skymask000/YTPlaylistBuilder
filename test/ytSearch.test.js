@@ -165,11 +165,17 @@ test("extractResults pulls videoId/title/channel/duration from ytInitialData JSO
   assert.equal(results[1].durationSeconds, 510);
 });
 
-test("extractResults returns [] when ytInitialData is missing", () => {
-  assert.deepEqual(extractResults("<html>no data here</html>"), []);
+test("extractResults returns null when ytInitialData is missing (bot-check / consent gate)", () => {
+  assert.equal(extractResults("<html>no data here</html>"), null);
 });
 
-test("pickBest does not reject word-boundary collisions like 'delivered' for 'live'", () => {
+test("extractResults returns [] when ytInitialData parses but has no videoRenderers", () => {
+  const yid = { contents: { twoColumnSearchResultsRenderer: { primaryContents: {} } } };
+  const html = `<script>var ytInitialData = ${JSON.stringify(yid)};</script>`;
+  assert.deepEqual(extractResults(html), []);
+});
+
+test("pickBest reject filter does not confuse 'delivered' with 'live' (word-boundary)", () => {
   const results = [
     R({ videoId: "collision", title: "Songs Delivered Right To You" }),
   ];
@@ -178,6 +184,36 @@ test("pickBest does not reject word-boundary collisions like 'delivered' for 'li
     song: "Something",
     query: "Some Artist - Something",
   });
+  // Word-boundary reject filter doesn't fire, so the video is returned:
   assert.equal(pick.videoId, "collision");
+  assert.equal(pick.noMatch, false);
+  // Title relevance is genuinely low ("Something" not in title) — that flag is separate.
+  assert.equal(pick.lowConfidence, true);
+});
+
+test("pickBest flags lowConfidence when picked title shares no song-token (wrong-song from artist channel)", () => {
+  const results = [
+    R({ videoId: "wrong-song", title: "Broken Cog", channelName: "Meshuggah" }),
+  ];
+  const pick = pickBest(results, {
+    artist: "Meshuggah",
+    song: "Demiurge",
+    query: "Meshuggah - Demiurge",
+  });
+  assert.equal(pick.videoId, "wrong-song");
+  assert.equal(pick.lowConfidence, true);
+  assert.equal(pick.noMatch, false);
+});
+
+test("pickBest does not flag lowConfidence when title contains at least one song token", () => {
+  const results = [
+    R({ videoId: "right", title: "Iron Man (Remastered)" }),
+  ];
+  const pick = pickBest(results, {
+    artist: "Black Sabbath",
+    song: "Iron Man",
+    query: "Black Sabbath - Iron Man",
+  });
+  assert.equal(pick.videoId, "right");
   assert.equal(pick.lowConfidence, false);
 });

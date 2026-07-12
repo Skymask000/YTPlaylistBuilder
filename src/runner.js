@@ -2,17 +2,46 @@ import { parseSongList } from "./parser.js";
 import { searchYouTube } from "./ytSearch.js";
 import { createPlaylist, addVideoToPlaylist } from "./ytApi.js";
 
+const SEARCH_DELAY_MIN_MS = 1000;
+const SEARCH_DELAY_MAX_MS = 1600;
+const BLOCKED_RETRY_WAIT_MS = 5000;
+const MAX_CONSECUTIVE_BLOCKED = 3;
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const jitter = (min, max) => min + Math.floor(Math.random() * (max - min + 1));
+
+async function searchOnce(artist, song) {
+  try {
+    return await searchYouTube({ artist, song });
+  } catch {
+    return { videoId: null, matchedTitle: "", channelName: "", lowConfidence: false, noMatch: true, blocked: true };
+  }
+}
+
 export async function runSearchPhase(text, onProgress) {
   const parsed = parseSongList(text);
   const results = [];
+  let consecutiveBlocked = 0;
   for (let i = 0; i < parsed.length; i++) {
+    if (i > 0) await sleep(jitter(SEARCH_DELAY_MIN_MS, SEARCH_DELAY_MAX_MS));
     const { artist, song } = parsed[i];
     const query = artist ? `${artist} - ${song}` : song;
-    let match;
-    try {
-      match = await searchYouTube({ artist, song });
-    } catch (e) {
-      match = { videoId: null, matchedTitle: "", channelName: "", lowConfidence: false, noMatch: true };
+    let match = await searchOnce(artist, song);
+    if (match.blocked) {
+      await sleep(BLOCKED_RETRY_WAIT_MS);
+      match = await searchOnce(artist, song);
+    }
+    if (match.blocked) {
+      consecutiveBlocked++;
+      if (consecutiveBlocked >= MAX_CONSECUTIVE_BLOCKED) {
+        throw Object.assign(new Error(`YouTube blocked ${consecutiveBlocked} searches in a row. Stopped at song ${i + 1} of ${parsed.length}. Wait 5-10 minutes and re-run.`), {
+          throttled: true,
+          stoppedAtIndex: i,
+          partialResults: results,
+        });
+      }
+    } else {
+      consecutiveBlocked = 0;
     }
     const entry = { artist, song, query, ...match };
     results.push(entry);

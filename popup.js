@@ -179,7 +179,8 @@ goBtn.addEventListener("click", async () => {
 
   try {
     const results = await runSearchPhase(text, (i, total, entry) => {
-      progressLine.textContent = `Searching ${i} / ${total} — ${entry.query}`;
+      const suffix = entry.blocked ? " (blocked)" : entry.noMatch ? " (no match)" : "";
+      progressLine.textContent = `Searching ${i} / ${total} — ${entry.query}${suffix} — keep this popup open`;
       renderRow(i, entry);
     });
     progressLine.textContent = `Search complete — ${results.length} entries.`;
@@ -190,7 +191,12 @@ goBtn.addEventListener("click", async () => {
     reportSection.hidden = true;
     commitSection.hidden = false;
   } catch (e) {
-    statusEl.textContent = `Error: ${e.message}`;
+    if (e.throttled) {
+      statusEl.textContent = e.message;
+      progressLine.textContent = `Stopped after ${e.partialResults.length} songs. Wait a few minutes, then re-run remaining songs.`;
+    } else {
+      statusEl.textContent = `Error: ${e.message}`;
+    }
   } finally {
     goBtn.disabled = false;
   }
