@@ -48,6 +48,9 @@ th, td {
 }
 tr.low-confidence td { color: #b26b00; }
 tr.no-match td { color: #a00; }
+tr.deselected td:not(:first-child) { opacity: 0.4; text-decoration: line-through; }
+#results-table th:first-child, #results-table td:first-child { width: 24px; text-align: center; }
+.row-checkbox, #select-all { margin: 0; cursor: pointer; }
 #status { min-height: 1em; }
 fieldset { border: 1px solid rgba(128,128,128,0.4); padding: 6px 10px; }
 legend { font-weight: 500; padding: 0 4px; }

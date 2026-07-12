@@ -35,14 +35,32 @@ function renderRow(i, entry) {
       : "ok";
   if (entry.noMatch) tr.classList.add("no-match");
   if (entry.lowConfidence) tr.classList.add("low-confidence");
+  if (entry.selected === false) tr.classList.add("deselected");
+  const checked = entry.selected !== false ? "checked" : "";
   tr.innerHTML = `
+    <td><input type="checkbox" class="row-checkbox" ${checked} aria-label="Include ${escapeHtml(entry.query)}"></td>
     <td>${i}</td>
     <td>${escapeHtml(entry.query)}</td>
     <td>${escapeHtml(entry.matchedTitle) || "—"}</td>
     <td>${escapeHtml(entry.channelName) || "—"}</td>
     <td>${status}</td>
   `;
+  const cb = tr.querySelector(".row-checkbox");
+  cb.addEventListener("change", () => {
+    entry.selected = cb.checked;
+    tr.classList.toggle("deselected", !cb.checked);
+    updateSummary(window.__lastResults ?? []);
+  });
   resultsBody.appendChild(tr);
+}
+
+function updateSummary(results) {
+  const noMatch = results.filter((r) => r.noMatch).length;
+  const lowConf = results.filter((r) => r.lowConfidence).length;
+  const selected = results.filter((r) => r.selected !== false).length;
+  statusEl.textContent = `${selected} of ${results.length} selected — ${lowConf} low-confidence, ${noMatch} no match.`;
+  const selectAll = document.getElementById("select-all");
+  if (selectAll) selectAll.checked = selected === results.length && results.length > 0;
 }
 
 function escapeHtml(s) {
@@ -50,6 +68,15 @@ function escapeHtml(s) {
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
   }[c]));
 }
+
+// Wire the "select all" master checkbox
+document.getElementById("select-all").addEventListener("change", (e) => {
+  const check = e.target.checked;
+  for (const entry of window.__lastResults ?? []) entry.selected = check;
+  for (const cb of resultsBody.querySelectorAll(".row-checkbox")) cb.checked = check;
+  for (const tr of resultsBody.querySelectorAll("tr")) tr.classList.toggle("deselected", !check);
+  updateSummary(window.__lastResults ?? []);
+});
 
 // Wire the radio-mode toggle
 for (const radio of document.querySelectorAll('input[name="target"]')) {
@@ -184,10 +211,8 @@ goBtn.addEventListener("click", async () => {
       renderRow(i, entry);
     });
     progressLine.textContent = `Search complete — ${results.length} entries.`;
-    const noMatch = results.filter((r) => r.noMatch).length;
-    const lowConf = results.filter((r) => r.lowConfidence).length;
-    statusEl.textContent = `${results.length} songs matched (${lowConf} low-confidence, ${noMatch} no match).`;
     window.__lastResults = results; // exposed for the next task's insert phase
+    updateSummary(results);
     reportSection.hidden = true;
     commitSection.hidden = false;
   } catch (e) {
@@ -212,9 +237,10 @@ addAllBtn.addEventListener("click", async () => {
     statusEl.textContent = "Pick an existing playlist (or click Load my playlists).";
     return;
   }
-  const entries = window.__lastResults ?? [];
+  const allResults = window.__lastResults ?? [];
+  const entries = allResults.filter((e) => e.selected !== false);
   if (!entries.length) {
-    statusEl.textContent = "Search first.";
+    statusEl.textContent = allResults.length ? "Nothing selected to add." : "Search first.";
     return;
   }
 

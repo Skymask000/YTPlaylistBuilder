@@ -43,7 +43,7 @@ export async function runSearchPhase(text, onProgress) {
     } else {
       consecutiveBlocked = 0;
     }
-    const entry = { artist, song, query, ...match };
+    const entry = { artist, song, query, ...match, selected: true };
     results.push(entry);
     if (onProgress) onProgress(i + 1, parsed.length, entry);
   }
