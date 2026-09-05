@@ -2,4 +2,6 @@ client_secret_*.json
 dist/
 .superpowers/
 node_modules/
+HANDOFF.md
+docs/superpowers/
 
