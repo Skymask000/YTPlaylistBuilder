@@ -94,4 +94,4 @@ Load unpacked in Chrome/Edge and use the popup to test end-to-end. Manual verifi
 
 ## License
 
-Not specified yet.
+MIT — see [LICENSE](LICENSE).
