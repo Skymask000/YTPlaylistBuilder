@@ -359,8 +359,9 @@ chrome.storage.onChanged.addListener((changes, area) => {
 (async () => {
   try {
     // Fast path: paint cached identity immediately for a responsive open.
+    // Always call renderIdentity so signed-out branch also runs (hides Sign out button).
     const { [IDENTITY_KEY]: cachedIdentity } = await chrome.storage.local.get(IDENTITY_KEY);
-    if (cachedIdentity) renderIdentity(cachedIdentity);
+    renderIdentity(cachedIdentity ?? null);
 
     const { state } = await chrome.runtime.sendMessage({ type: "getState" });
     renderFromState(state ?? null);
