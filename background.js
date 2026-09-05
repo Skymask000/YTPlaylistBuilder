@@ -2,10 +2,38 @@ import { runSearchPhase, runInsertPhase } from "./src/runner.js";
 import { getAuthToken } from "./src/auth.js";
 
 const KEY = "pendingRun";
+const SCHEMA_VERSION = 2;
+
+function migrateFromV1(old) {
+  // v0.1.3 pendingRun only covered the insert phase. Fill in v0.2.0 fields.
+  return {
+    schemaVersion: SCHEMA_VERSION,
+    phase: "insert",
+    textInput: "",
+    entries: old.entries ?? [],
+    searchIndex: (old.entries ?? []).length,
+    processedIndex: old.processedIndex ?? -1,
+    target: old.target ?? null,
+    playlistId: old.playlistId ?? null,
+    report: old.report ?? null,
+    lastStatus: {
+      text: "Interrupted run recovered — click Add all to continue.",
+      isError: false,
+    },
+    throttled: false,
+    quotaExceeded: false,
+  };
+}
 
 async function readState() {
   const { [KEY]: state } = await chrome.storage.local.get(KEY);
-  return state || null;
+  if (!state) return null;
+  if (state.schemaVersion !== SCHEMA_VERSION) {
+    const migrated = migrateFromV1(state);
+    await chrome.storage.local.set({ [KEY]: migrated });
+    return migrated;
+  }
+  return state;
 }
 
 async function writeState(state) {

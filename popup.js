@@ -70,10 +70,6 @@ async function clearIdentity() {
   renderIdentity(null);
 }
 
-// Dead in v0.2.0 — SW-owned state supersedes the old Resume/Discard flow.
-const resumeSection = document.getElementById("resume-section");
-if (resumeSection) resumeSection.hidden = true;
-
 function escapeHtml(s) {
   if (s == null) return "";
   return String(s).replace(/[&<>"']/g, (c) => ({
