@@ -120,10 +120,32 @@ function updateSummary(entries) {
   if (selectAll) selectAll.checked = selected === entries.length && entries.length > 0;
 }
 
+function setTargetSelection(target) {
+  if (!target) return;
+  const mode = target.mode || "create";
+  const radio = document.querySelector(`input[name="target"][value="${mode}"]`);
+  if (!radio) return;
+  radio.checked = true;
+  createFields.hidden = mode !== "create";
+  existingFields.hidden = mode !== "existing";
+  if (mode === "create") {
+    if (target.title !== undefined) newTitleEl.value = target.title;
+    if (target.privacyStatus) newPrivacyEl.value = target.privacyStatus;
+  } else if (mode === "existing" && target.playlistId) {
+    // Only set if the option is already loaded in the dropdown; otherwise it silently
+    // becomes an empty selection. The user can click Load to see the playlist's name.
+    const optionExists = Array.from(existingPlaylistEl.options).some(
+      (o) => o.value === target.playlistId,
+    );
+    if (optionExists) existingPlaylistEl.value = target.playlistId;
+  }
+}
+
 // Single render entry point. Called on load and on every pendingRun change.
 function renderFromState(state) {
   if (!state) {
-    // Idle — leave the UI as-is (blank on first open, or whatever the user has typed).
+    // Idle — hide run-state UI, but preserve textarea and target selection so
+    // the user can retype/re-run without losing their in-progress work.
     resultsSection.hidden = true;
     resultsBody.innerHTML = "";
     progressSection.hidden = true;
@@ -135,12 +157,20 @@ function renderFromState(state) {
 
   resetSection.hidden = false;
 
+  // Restore textarea and target selection so the popup looks IDENTICAL to what
+  // the user saw before closing it.
+  if (state.textInput !== undefined) inputEl.value = state.textInput;
+  setTargetSelection(state.target);
+
   const entries = state.entries || [];
   if (entries.length) {
     resultsSection.hidden = false;
     resultsBody.innerHTML = "";
     for (let i = 0; i < entries.length; i++) renderRow(i + 1, entries[i]);
     updateSummary(entries);
+  } else {
+    resultsSection.hidden = true;
+    resultsBody.innerHTML = "";
   }
 
   if (state.lastStatus) {
