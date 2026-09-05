@@ -55,6 +55,9 @@ export async function runInsertPhase({
   target,
   entries,
   onProgress,
+  onPlaylistCreated,
+  onEntryProcessed,
+  onComplete,
   startIndex = 0,
   seedReport = null,
 }) {
@@ -64,21 +67,9 @@ export async function runInsertPhase({
       title: target.title,
       privacyStatus: target.privacyStatus,
     });
+    if (onPlaylistCreated) await onPlaylistCreated(playlistId);
   } else {
     playlistId = target.playlistId;
-  }
-
-  // Persist the playlistId immediately so a first-insert failure is recoverable.
-  if (target.mode === "create") {
-    await chrome.storage.local.set({
-      pendingRun: {
-        playlistId,
-        entries,
-        processedIndex: startIndex - 1,
-        target: { mode: "existing", playlistId },
-        report: seedReport ?? { added: 0, alreadyInPlaylist: 0, noMatch: 0, failed: [] },
-      },
-    });
   }
 
   const report = seedReport
@@ -87,43 +78,26 @@ export async function runInsertPhase({
 
   let processedIndex = startIndex - 1;
 
-  async function persist() {
-    await chrome.storage.local.set({
-      pendingRun: {
-        playlistId,
-        entries,
-        processedIndex,
-        target: { mode: "existing", playlistId },
-        report: {
-          added: report.added,
-          alreadyInPlaylist: report.alreadyInPlaylist,
-          noMatch: report.noMatch,
-          failed: report.failed,
-        },
-      },
-    });
+  async function afterEntry(i, entry, meta) {
+    processedIndex = i;
+    if (onEntryProcessed) await onEntryProcessed(i, entry, meta, report);
+    if (onProgress) onProgress(i + 1, entries.length, entry, meta);
   }
 
   for (let i = startIndex; i < entries.length; i++) {
     const entry = entries[i];
     if (entry.noMatch || !entry.videoId) {
       report.noMatch++;
-      processedIndex = i;
-      await persist();
-      if (onProgress) onProgress(i + 1, entries.length, entry, { status: "no-match" });
+      await afterEntry(i, entry, { status: "no-match" });
       continue;
     }
     const res = await addVideoToPlaylist(token, playlistId, entry.videoId);
     if (res.ok) {
       report.added++;
-      processedIndex = i;
-      await persist();
-      if (onProgress) onProgress(i + 1, entries.length, entry, { status: "added" });
+      await afterEntry(i, entry, { status: "added" });
     } else if (res.alreadyInPlaylist) {
       report.alreadyInPlaylist++;
-      processedIndex = i;
-      await persist();
-      if (onProgress) onProgress(i + 1, entries.length, entry, { status: "already" });
+      await afterEntry(i, entry, { status: "already" });
     } else if (res.quotaExceeded) {
       if (onProgress) onProgress(i + 1, entries.length, entry, { status: "quota" });
       throw Object.assign(new Error(`Quota exceeded at song ${i + 1} of ${entries.length}`), {
@@ -133,13 +107,11 @@ export async function runInsertPhase({
       });
     } else {
       report.failed.push({ query: entry.query, reason: res.reason });
-      processedIndex = i;
-      await persist();
-      if (onProgress) onProgress(i + 1, entries.length, entry, { status: "failed", reason: res.reason });
+      await afterEntry(i, entry, { status: "failed", reason: res.reason });
     }
   }
 
-  await chrome.storage.local.remove("pendingRun");
+  if (onComplete) await onComplete(playlistId, report);
   return { playlistId, report };
 }
 

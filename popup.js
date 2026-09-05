@@ -1,4 +1,4 @@
-import { runSearchPhase, runInsertPhase, formatReport } from "./src/runner.js";
+import { formatReport } from "./src/runner.js";
 import { getAuthToken, NotSignedInError } from "./src/auth.js";
 import { listMyPlaylists } from "./src/ytApi.js";
 
@@ -20,11 +20,19 @@ const addAllBtn = document.getElementById("add-all-btn");
 const reportSection = document.getElementById("report-section");
 const reportTextEl = document.getElementById("report-text");
 const copyReportBtn = document.getElementById("copy-report-btn");
+const resetSection = document.getElementById("reset-section");
+const resetBtn = document.getElementById("reset-btn");
 
+// Dead in v0.2.0 — SW-owned state supersedes the old Resume/Discard flow.
 const resumeSection = document.getElementById("resume-section");
-const resumeMessage = document.getElementById("resume-message");
-const resumeBtn = document.getElementById("resume-btn");
-const discardBtn = document.getElementById("discard-btn");
+if (resumeSection) resumeSection.hidden = true;
+
+function escapeHtml(s) {
+  if (s == null) return "";
+  return String(s).replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  }[c]));
+}
 
 function renderRow(i, entry) {
   const tr = document.createElement("tr");
@@ -38,7 +46,7 @@ function renderRow(i, entry) {
   if (entry.selected === false) tr.classList.add("deselected");
   const checked = entry.selected !== false ? "checked" : "";
   tr.innerHTML = `
-    <td><input type="checkbox" class="row-checkbox" ${checked} aria-label="Include ${escapeHtml(entry.query)}"></td>
+    <td><input type="checkbox" class="row-checkbox" data-index="${i - 1}" ${checked} aria-label="Include ${escapeHtml(entry.query)}"></td>
     <td>${i}</td>
     <td>${escapeHtml(entry.query)}</td>
     <td>${escapeHtml(entry.matchedTitle) || "—"}</td>
@@ -46,36 +54,76 @@ function renderRow(i, entry) {
     <td>${status}</td>
   `;
   const cb = tr.querySelector(".row-checkbox");
-  cb.addEventListener("change", () => {
-    entry.selected = cb.checked;
-    tr.classList.toggle("deselected", !cb.checked);
-    updateSummary(window.__lastResults ?? []);
+  cb.addEventListener("change", async () => {
+    await chrome.runtime.sendMessage({
+      type: "setSelected",
+      index: i - 1,
+      selected: cb.checked,
+    });
   });
   resultsBody.appendChild(tr);
 }
 
-function updateSummary(results) {
-  const noMatch = results.filter((r) => r.noMatch).length;
-  const lowConf = results.filter((r) => r.lowConfidence).length;
-  const selected = results.filter((r) => r.selected !== false).length;
-  statusEl.textContent = `${selected} of ${results.length} selected — ${lowConf} low-confidence, ${noMatch} no match.`;
+function updateSummary(entries) {
+  const noMatch = entries.filter((r) => r.noMatch).length;
+  const lowConf = entries.filter((r) => r.lowConfidence).length;
+  const selected = entries.filter((r) => r.selected !== false).length;
+  statusEl.textContent = `${selected} of ${entries.length} selected — ${lowConf} low-confidence, ${noMatch} no match.`;
   const selectAll = document.getElementById("select-all");
-  if (selectAll) selectAll.checked = selected === results.length && results.length > 0;
+  if (selectAll) selectAll.checked = selected === entries.length && entries.length > 0;
 }
 
-function escapeHtml(s) {
-  return String(s).replace(/[&<>"']/g, (c) => ({
-    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
-  }[c]));
+// Single render entry point. Called on load and on every pendingRun change.
+function renderFromState(state) {
+  if (!state) {
+    // Idle — leave the UI as-is (blank on first open, or whatever the user has typed).
+    resultsSection.hidden = true;
+    resultsBody.innerHTML = "";
+    progressSection.hidden = true;
+    reportSection.hidden = true;
+    commitSection.hidden = true;
+    resetSection.hidden = true;
+    return;
+  }
+
+  resetSection.hidden = false;
+
+  const entries = state.entries || [];
+  if (entries.length) {
+    resultsSection.hidden = false;
+    resultsBody.innerHTML = "";
+    for (let i = 0; i < entries.length; i++) renderRow(i + 1, entries[i]);
+    updateSummary(entries);
+  }
+
+  if (state.lastStatus) {
+    progressSection.hidden = false;
+    progressLine.textContent = state.lastStatus.text;
+  }
+
+  if (state.phase === "search" && entries.length && state.searchIndex >= entries.length) {
+    // Search finished but user hasn't started insert yet — expose Add-all.
+    commitSection.hidden = false;
+  } else if (state.phase === "insert" || state.phase === "done") {
+    commitSection.hidden = false;
+  } else {
+    commitSection.hidden = true;
+  }
+
+  if (state.phase === "done" && state.report) {
+    reportSection.hidden = false;
+    reportTextEl.textContent = formatReport(state.report, entries);
+  } else {
+    reportSection.hidden = true;
+  }
 }
 
 // Wire the "select all" master checkbox
-document.getElementById("select-all").addEventListener("change", (e) => {
-  const check = e.target.checked;
-  for (const entry of window.__lastResults ?? []) entry.selected = check;
-  for (const cb of resultsBody.querySelectorAll(".row-checkbox")) cb.checked = check;
-  for (const tr of resultsBody.querySelectorAll("tr")) tr.classList.toggle("deselected", !check);
-  updateSummary(window.__lastResults ?? []);
+document.getElementById("select-all").addEventListener("change", async (e) => {
+  await chrome.runtime.sendMessage({
+    type: "setSelectedAll",
+    selected: e.target.checked,
+  });
 });
 
 // Wire the radio-mode toggle
@@ -86,10 +134,8 @@ for (const radio of document.querySelectorAll('input[name="target"]')) {
     existingFields.hidden = mode !== "existing";
   });
 }
-// Initial state — create mode is checked so hide existing block:
 existingFields.hidden = true;
 
-// Wire the "Load my playlists" button
 loadPlaylistsBtn.addEventListener("click", async () => {
   loadPlaylistsBtn.disabled = true;
   loadPlaylistsBtn.textContent = "Loading...";
@@ -120,7 +166,6 @@ loadPlaylistsBtn.addEventListener("click", async () => {
   }
 });
 
-// Helper to get the target (create or existing playlist)
 function getTarget() {
   const mode = document.querySelector('input[name="target"]:checked').value;
   if (mode === "create") {
@@ -130,65 +175,22 @@ function getTarget() {
       privacyStatus: newPrivacyEl.value,
     };
   }
-  return {
-    mode: "existing",
-    playlistId: existingPlaylistEl.value,
-  };
-}
-
-async function checkPendingRun() {
-  const { pendingRun } = await chrome.storage.local.get("pendingRun");
-  if (!pendingRun) return;
-  const remaining = pendingRun.entries.length - (pendingRun.processedIndex + 1);
-  resumeMessage.textContent = `Previous run interrupted — ${remaining} of ${pendingRun.entries.length} remaining.`;
-  resumeSection.hidden = false;
-
-  resumeBtn.onclick = async () => {
-    resumeBtn.disabled = true;
-    discardBtn.disabled = true;
-    statusEl.textContent = "Resuming — signing in...";
-    try {
-      const token = await getAuthToken({ interactive: true });
-      const { report } = await runInsertPhase({
-        token,
-        target: pendingRun.target,
-        entries: pendingRun.entries,
-        startIndex: pendingRun.processedIndex + 1,
-        seedReport: pendingRun.report ?? null,
-        onProgress: (i, total, entry, meta) => {
-          progressSection.hidden = false;
-          progressLine.textContent = `Resuming ${i} / ${total} — ${entry.query} — ${meta.status}`;
-        },
-      });
-      reportTextEl.textContent = formatReport(report, pendingRun.entries);
-      reportSection.hidden = false;
-      resumeSection.hidden = true;
-      statusEl.textContent = "Resume complete.";
-    } catch (e) {
-      statusEl.textContent = e.quotaExceeded
-        ? e.message + ". Retry tomorrow."
-        : `Error: ${e.message}`;
-    } finally {
-      resumeBtn.disabled = false;
-      discardBtn.disabled = false;
-    }
-  };
-
-  discardBtn.onclick = async () => {
-    await chrome.storage.local.remove("pendingRun");
-    resumeSection.hidden = true;
-    statusEl.textContent = "Discarded previous run.";
-  };
+  return { mode: "existing", playlistId: existingPlaylistEl.value };
 }
 
 goBtn.addEventListener("click", async () => {
+  const { state: existing } = await chrome.runtime.sendMessage({ type: "getState" });
+  if (existing) {
+    statusEl.textContent = "A previous run is still on screen — click Reset first.";
+    return;
+  }
+
   const text = inputEl.value;
   if (!text.trim()) {
     statusEl.textContent = "Paste at least one song.";
     return;
   }
 
-  // Rough count for quota warning (before dedupe; conservative).
   const roughCount = text.split(/\r?\n/).filter((l) => l.trim() && !/^\d+\.\s/.test(l.trim())).length;
   if (roughCount > 100) {
     const proceed = confirm(
@@ -197,34 +199,8 @@ goBtn.addEventListener("click", async () => {
     if (!proceed) return;
   }
 
-  goBtn.disabled = true;
-  resultsBody.innerHTML = "";
-  progressSection.hidden = false;
-  resultsSection.hidden = false;
-  progressLine.textContent = "Parsing...";
   statusEl.textContent = "";
-
-  try {
-    const results = await runSearchPhase(text, (i, total, entry) => {
-      const suffix = entry.blocked ? " (blocked)" : entry.noMatch ? " (no match)" : "";
-      progressLine.textContent = `Searching ${i} / ${total} — ${entry.query}${suffix} — keep this popup open`;
-      renderRow(i, entry);
-    });
-    progressLine.textContent = `Search complete — ${results.length} entries.`;
-    window.__lastResults = results; // exposed for the next task's insert phase
-    updateSummary(results);
-    reportSection.hidden = true;
-    commitSection.hidden = false;
-  } catch (e) {
-    if (e.throttled) {
-      statusEl.textContent = e.message;
-      progressLine.textContent = `Stopped after ${e.partialResults.length} songs. Wait a few minutes, then re-run remaining songs.`;
-    } else {
-      statusEl.textContent = `Error: ${e.message}`;
-    }
-  } finally {
-    goBtn.disabled = false;
-  }
+  await chrome.runtime.sendMessage({ type: "startSearch", text });
 });
 
 addAllBtn.addEventListener("click", async () => {
@@ -237,42 +213,23 @@ addAllBtn.addEventListener("click", async () => {
     statusEl.textContent = "Pick an existing playlist (or click Load my playlists).";
     return;
   }
-  const allResults = window.__lastResults ?? [];
-  const entries = allResults.filter((e) => e.selected !== false);
+  const { state } = await chrome.runtime.sendMessage({ type: "getState" });
+  const entries = (state?.entries || []).filter((e) => e.selected !== false);
   if (!entries.length) {
-    statusEl.textContent = allResults.length ? "Nothing selected to add." : "Search first.";
+    statusEl.textContent = state?.entries?.length ? "Nothing selected to add." : "Search first.";
     return;
   }
 
   addAllBtn.disabled = true;
   statusEl.textContent = "Signing in...";
-
   try {
-    const token = await getAuthToken({ interactive: true });
-    statusEl.textContent = "Adding songs...";
-    const { report } = await runInsertPhase({
-      token,
-      target,
-      entries,
-      onProgress: (i, total, entry, meta) => {
-        const suffix =
-          meta.status === "added" ? "✓"
-          : meta.status === "already" ? "already in playlist"
-          : meta.status === "no-match" ? "no match — skipping"
-          : meta.status === "failed" ? `failed: ${meta.reason}`
-          : meta.status;
-        progressLine.textContent = `Adding ${i} / ${total} — ${entry.query} — ${suffix}`;
-      },
-    });
-    reportTextEl.textContent = formatReport(report, entries);
-    reportSection.hidden = false;
-    statusEl.textContent = "Done.";
+    // Seed the token cache with a user-gesture-triggered interactive flow;
+    // the SW then reads it non-interactively during the run.
+    await getAuthToken({ interactive: true });
+    await chrome.runtime.sendMessage({ type: "startInsert", target });
   } catch (e) {
-    if (e.quotaExceeded) {
-      statusEl.textContent = e.message + ". Retry tomorrow.";
-    } else {
-      statusEl.textContent = `Error: ${e.message}`;
-    }
+    const prefix = e instanceof NotSignedInError ? "Sign-in error" : "Error";
+    statusEl.textContent = `${prefix}: ${e.message}`;
   } finally {
     addAllBtn.disabled = false;
   }
@@ -288,6 +245,24 @@ copyReportBtn.addEventListener("click", async () => {
   setTimeout(() => (copyReportBtn.textContent = "Copy report"), 1500);
 });
 
-checkPendingRun().catch((e) => {
-  statusEl.textContent = `Storage error: ${e.message}`;
+resetBtn.addEventListener("click", async () => {
+  if (!confirm("Clear the current run and start over?")) return;
+  await chrome.runtime.sendMessage({ type: "reset" });
+  statusEl.textContent = "Reset.";
 });
+
+// Live-update: re-render whenever the SW writes new state.
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== "local" || !("pendingRun" in changes)) return;
+  renderFromState(changes.pendingRun.newValue ?? null);
+});
+
+// Initial render on popup open.
+(async () => {
+  try {
+    const { state } = await chrome.runtime.sendMessage({ type: "getState" });
+    renderFromState(state ?? null);
+  } catch (e) {
+    statusEl.textContent = `State error: ${e.message}`;
+  }
+})();
