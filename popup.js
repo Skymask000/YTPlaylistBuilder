@@ -1,6 +1,6 @@
 import { formatReport } from "./src/runner.js";
 import { getAuthToken, clearAuthToken, NotSignedInError } from "./src/auth.js";
-import { listMyPlaylists } from "./src/ytApi.js";
+import { listMyPlaylists, getMyChannel } from "./src/ytApi.js";
 
 const inputEl = document.getElementById("songs-input");
 const goBtn = document.getElementById("go-btn");
@@ -24,6 +24,49 @@ const resetSection = document.getElementById("reset-section");
 const resetBtn = document.getElementById("reset-btn");
 const signoutBtn = document.getElementById("signout-btn");
 const addAccountBtn = document.getElementById("addaccount-btn");
+const accountStatusEl = document.getElementById("account-status");
+const accountAvatarEl = document.getElementById("account-avatar");
+
+const IDENTITY_KEY = "authIdentity";
+
+function renderIdentity(identity) {
+  if (identity && identity.title) {
+    accountStatusEl.textContent = identity.title;
+    if (identity.thumbnailUrl) {
+      accountAvatarEl.src = identity.thumbnailUrl;
+      accountAvatarEl.hidden = false;
+    } else {
+      accountAvatarEl.hidden = true;
+    }
+  } else {
+    accountStatusEl.textContent = "Not signed in";
+    accountAvatarEl.hidden = true;
+    accountAvatarEl.removeAttribute("src");
+  }
+}
+
+async function refreshIdentity() {
+  try {
+    const token = await getAuthToken({ interactive: false });
+    const channel = await getMyChannel(token);
+    if (channel) {
+      await chrome.storage.local.set({ [IDENTITY_KEY]: channel });
+      renderIdentity(channel);
+    } else {
+      // Google account with no YouTube channel.
+      const fallback = { title: "Signed in (no YouTube channel)", thumbnailUrl: null };
+      await chrome.storage.local.set({ [IDENTITY_KEY]: fallback });
+      renderIdentity(fallback);
+    }
+  } catch (e) {
+    // Silent: not signed in, or transient network/API error. Leave last cached identity if any.
+  }
+}
+
+async function clearIdentity() {
+  await chrome.storage.local.remove(IDENTITY_KEY);
+  renderIdentity(null);
+}
 
 // Dead in v0.2.0 — SW-owned state supersedes the old Resume/Discard flow.
 const resumeSection = document.getElementById("resume-section");
@@ -141,6 +184,7 @@ existingFields.hidden = true;
 loadPlaylistsBtn.addEventListener("click", async () => {
   loadPlaylistsBtn.disabled = true;
   loadPlaylistsBtn.textContent = "Loading...";
+  statusEl.textContent = "Loading your playlists...";
   try {
     const token = await getAuthToken({ interactive: true });
     const playlists = await listMyPlaylists(token);
@@ -159,6 +203,9 @@ loadPlaylistsBtn.addEventListener("click", async () => {
       }
     }
     loadPlaylistsBtn.textContent = "Reload";
+    statusEl.textContent = `Loaded ${playlists.length} playlist${playlists.length === 1 ? "" : "s"}.`;
+    // Refresh the visible identity in case this was the first sign-in for this account.
+    refreshIdentity();
   } catch (e) {
     const prefix = e instanceof NotSignedInError ? "Sign-in error" : "API error";
     statusEl.textContent = `${prefix}: ${e.message}`;
@@ -255,6 +302,7 @@ resetBtn.addEventListener("click", async () => {
 
 signoutBtn.addEventListener("click", async () => {
   await clearAuthToken();
+  await clearIdentity();
   // Clear the loaded-playlists dropdown too — it belongs to the signed-out account.
   existingPlaylistEl.innerHTML = "";
   const opt = document.createElement("option");
@@ -269,9 +317,17 @@ addAccountBtn.addEventListener("click", async () => {
   addAccountBtn.disabled = true;
   const prevLabel = addAccountBtn.textContent;
   addAccountBtn.textContent = "Signing in...";
+  statusEl.textContent = "Signing in...";
   try {
     await clearAuthToken();
-    await getAuthToken({ interactive: true, switchAccount: true });
+    await clearIdentity();
+    const token = await getAuthToken({ interactive: true, switchAccount: true });
+    // Fetch and cache identity for the newly signed-in account.
+    const channel = await getMyChannel(token);
+    if (channel) {
+      await chrome.storage.local.set({ [IDENTITY_KEY]: channel });
+      renderIdentity(channel);
+    }
     // Reset the playlists dropdown; user will Load to see this account's playlists.
     existingPlaylistEl.innerHTML = "";
     const opt = document.createElement("option");
@@ -279,7 +335,9 @@ addAccountBtn.addEventListener("click", async () => {
     opt.textContent = "— click 'Load my playlists' —";
     existingPlaylistEl.appendChild(opt);
     loadPlaylistsBtn.textContent = "Load my playlists";
-    statusEl.textContent = "Signed in with new account.";
+    statusEl.textContent = channel
+      ? `Signed in as ${channel.title}.`
+      : "Signed in (no YouTube channel on this account).";
   } catch (e) {
     const prefix = e instanceof NotSignedInError ? "Sign-in error" : "Error";
     statusEl.textContent = `${prefix}: ${e.message}`;
@@ -298,8 +356,16 @@ chrome.storage.onChanged.addListener((changes, area) => {
 // Initial render on popup open.
 (async () => {
   try {
+    // Fast path: paint cached identity immediately for a responsive open.
+    const { [IDENTITY_KEY]: cachedIdentity } = await chrome.storage.local.get(IDENTITY_KEY);
+    if (cachedIdentity) renderIdentity(cachedIdentity);
+
     const { state } = await chrome.runtime.sendMessage({ type: "getState" });
     renderFromState(state ?? null);
+
+    // Background refresh so the display corrects itself if a different account
+    // was signed into (or out of) since last popup close.
+    refreshIdentity();
   } catch (e) {
     statusEl.textContent = `State error: ${e.message}`;
   }

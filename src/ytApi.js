@@ -15,6 +15,20 @@ async function apiCall(token, method, path, { query = null, body = null } = {}) 
   return { ok: res.ok, status: res.status, json };
 }
 
+export async function getMyChannel(token) {
+  const { ok, json } = await apiCall(token, "GET", "/channels", {
+    query: { part: "snippet", mine: "true" },
+  });
+  if (!ok) throw new Error(json?.error?.message ?? "channels.list failed");
+  const item = (json.items ?? [])[0];
+  if (!item) return null;
+  return {
+    id: item.id,
+    title: item.snippet.title,
+    thumbnailUrl: item.snippet.thumbnails?.default?.url ?? null,
+  };
+}
+
 export async function listMyPlaylists(token) {
   const { ok, json } = await apiCall(token, "GET", "/playlists", {
     query: { part: "snippet,contentDetails", mine: "true", maxResults: "50" },

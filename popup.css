@@ -63,3 +63,34 @@ legend { font-weight: 500; padding: 0 4px; }
   padding: 8px 10px;
   margin-bottom: 10px;
 }
+
+#account-section {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+#account-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  min-width: 0;
+}
+#account-avatar {
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+#account-status {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#account-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+#account-actions button {
+  margin-top: 0;
+}
