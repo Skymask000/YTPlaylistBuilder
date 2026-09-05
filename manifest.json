@@ -3,7 +3,6 @@
   "name": "YT Playlist Builder",
   "version": "0.2.0",
   "description": "Turn a pasted list of songs into a YouTube playlist.",
-  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA2bZ29X+jJjnjGsqjWg4P9mZPWmKZwFYC6xmwtb2P9kqs6Kg5Njdpla7b1w1QjMW9JHAbuMRutdIK7jHaD92YZEPhc0kIaUcB9/r6W1pGslCb8Eq9C+9LdWvay9tk1s6SeIIJNLK50rHG8X/E6L0mp250/FUpWYOgyN6nArau0pSEqzhvsMVSn+OH+jqBIHanHVl7W/ar+6Uag/BrtAtSORkQd60sIJX3YCXh0aTRHfCeceJC+DWycezaWCXT2o47DeTq2K13NCfcufOrBnVySzg65YwH7Fxy9f6j2fBRZx3rH6/TFdWXQBp9ETmJgTfHfPb1MkTs/+CIsI914e4rpwIDAQAB",
   "action": {
     "default_popup": "popup.html",
     "default_title": "YT Playlist Builder"
