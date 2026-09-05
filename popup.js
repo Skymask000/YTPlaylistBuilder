@@ -30,7 +30,9 @@ const accountAvatarEl = document.getElementById("account-avatar");
 const IDENTITY_KEY = "authIdentity";
 
 function renderIdentity(identity) {
-  if (identity && identity.title) {
+  const signedIn = !!(identity && identity.title);
+  signoutBtn.hidden = !signedIn;
+  if (signedIn) {
     accountStatusEl.textContent = identity.title;
     if (identity.thumbnailUrl) {
       accountAvatarEl.src = identity.thumbnailUrl;
