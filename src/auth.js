@@ -59,9 +59,11 @@ function parseTokenFromRedirect(redirectUrl) {
   return { token, expiresIn };
 }
 
-export async function getAuthToken({ interactive } = { interactive: true }) {
-  const cached = await getCachedToken();
-  if (cached) return cached;
+export async function getAuthToken({ interactive, switchAccount } = { interactive: true }) {
+  if (!switchAccount) {
+    const cached = await getCachedToken();
+    if (cached) return cached;
+  }
 
   const clientId = getClientId();
   const authUrl = new URL("https://accounts.google.com/o/oauth2/v2/auth");
@@ -69,7 +71,9 @@ export async function getAuthToken({ interactive } = { interactive: true }) {
   authUrl.searchParams.set("redirect_uri", redirectUri());
   authUrl.searchParams.set("response_type", "token");
   authUrl.searchParams.set("scope", SCOPE);
-  authUrl.searchParams.set("prompt", "consent");
+  // switchAccount → force Google's account picker (shows all signed-in accounts on device).
+  // Otherwise, force consent screen once so scope grants are explicit.
+  authUrl.searchParams.set("prompt", switchAccount ? "select_account" : "consent");
 
   const redirectUrl = await launchWebAuthFlow(authUrl.toString(), interactive);
   const { token, expiresIn } = parseTokenFromRedirect(redirectUrl);

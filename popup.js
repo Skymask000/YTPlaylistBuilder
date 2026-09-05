@@ -1,5 +1,5 @@
 import { formatReport } from "./src/runner.js";
-import { getAuthToken, NotSignedInError } from "./src/auth.js";
+import { getAuthToken, clearAuthToken, NotSignedInError } from "./src/auth.js";
 import { listMyPlaylists } from "./src/ytApi.js";
 
 const inputEl = document.getElementById("songs-input");
@@ -22,6 +22,8 @@ const reportTextEl = document.getElementById("report-text");
 const copyReportBtn = document.getElementById("copy-report-btn");
 const resetSection = document.getElementById("reset-section");
 const resetBtn = document.getElementById("reset-btn");
+const signoutBtn = document.getElementById("signout-btn");
+const addAccountBtn = document.getElementById("addaccount-btn");
 
 // Dead in v0.2.0 — SW-owned state supersedes the old Resume/Discard flow.
 const resumeSection = document.getElementById("resume-section");
@@ -249,6 +251,42 @@ resetBtn.addEventListener("click", async () => {
   if (!confirm("Clear the current run and start over?")) return;
   await chrome.runtime.sendMessage({ type: "reset" });
   statusEl.textContent = "Reset.";
+});
+
+signoutBtn.addEventListener("click", async () => {
+  await clearAuthToken();
+  // Clear the loaded-playlists dropdown too — it belongs to the signed-out account.
+  existingPlaylistEl.innerHTML = "";
+  const opt = document.createElement("option");
+  opt.value = "";
+  opt.textContent = "— sign in to load your playlists —";
+  existingPlaylistEl.appendChild(opt);
+  loadPlaylistsBtn.textContent = "Load my playlists";
+  statusEl.textContent = "Signed out.";
+});
+
+addAccountBtn.addEventListener("click", async () => {
+  addAccountBtn.disabled = true;
+  const prevLabel = addAccountBtn.textContent;
+  addAccountBtn.textContent = "Signing in...";
+  try {
+    await clearAuthToken();
+    await getAuthToken({ interactive: true, switchAccount: true });
+    // Reset the playlists dropdown; user will Load to see this account's playlists.
+    existingPlaylistEl.innerHTML = "";
+    const opt = document.createElement("option");
+    opt.value = "";
+    opt.textContent = "— click 'Load my playlists' —";
+    existingPlaylistEl.appendChild(opt);
+    loadPlaylistsBtn.textContent = "Load my playlists";
+    statusEl.textContent = "Signed in with new account.";
+  } catch (e) {
+    const prefix = e instanceof NotSignedInError ? "Sign-in error" : "Error";
+    statusEl.textContent = `${prefix}: ${e.message}`;
+  } finally {
+    addAccountBtn.disabled = false;
+    addAccountBtn.textContent = prevLabel;
+  }
 });
 
 // Live-update: re-render whenever the SW writes new state.
