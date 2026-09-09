@@ -85,6 +85,7 @@ async function handleStartSearch(text) {
       });
     });
     await patchState({
+      entries: results,
       searchIndex: results.length,
       lastStatus: {
         text: `Search complete — ${results.length} entries.`,

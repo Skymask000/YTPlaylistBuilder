@@ -45,7 +45,7 @@ export async function runSearchPhase(text, onProgress) {
     }
     const entry = { artist, song, query, ...match, selected: true };
     results.push(entry);
-    if (onProgress) onProgress(i + 1, parsed.length, entry);
+    if (onProgress) await onProgress(i + 1, parsed.length, entry);
   }
   return results;
 }
