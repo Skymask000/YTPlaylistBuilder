@@ -148,6 +148,19 @@ async function handleStartSearch(text) {
   }
 }
 
+// The line the user is left with. Only non-zero outcomes are mentioned — a clean run
+// is the common case, and trailing zeroes bury the number that matters.
+function completionText(report, playlistTitle) {
+  const n = report.added;
+  const where = playlistTitle ? ` to "${playlistTitle}"` : " to the playlist";
+  const extras = [];
+  if (report.alreadyInPlaylist) extras.push(`${report.alreadyInPlaylist} already there`);
+  if (report.noMatch) extras.push(`${report.noMatch} no match`);
+  if (report.failed.length) extras.push(`${report.failed.length} failed`);
+  const tail = extras.length ? ` (${extras.join(", ")})` : "";
+  return `${n} song${n === 1 ? "" : "s"} added${where}.${tail}`;
+}
+
 async function handleStartInsert(target) {
   const runId = ++currentRunId;
   const state = await readState();
@@ -160,25 +173,40 @@ async function handleStartInsert(target) {
     return;
   }
 
-  // If we've already created a playlist earlier in this run, target the existing one.
-  const effectiveTarget = state.playlistId
-    ? { mode: "existing", playlistId: state.playlistId }
-    : target;
+  // Reusing the stored playlistId is what stops a RESUMED run from creating a second
+  // playlist. But once a run is finished, clicking Add-all again means the user picked
+  // a new destination — honouring the old id would silently re-add to the first
+  // playlist and ignore their choice. So a committed run starts over against `target`.
+  // Captured before the state write because `target` gets overwritten with
+  // {mode:"existing", playlistId} once the playlist exists, which throws the name away
+  // before the final "N songs added to X" line needs it.
+  const playlistTitle = target?.title || state.playlistTitle || "";
+
+  const isRerun = state.phase === "done";
+  const effectiveTarget =
+    state.playlistId && !isRerun
+      ? { mode: "existing", playlistId: state.playlistId }
+      : target;
 
   // Computed before the state write so the progress estimate knows where this phase
   // picked up: a resumed insert starts with songs already done, and dividing elapsed
   // time by the total done (rather than done-this-phase) would badly under-estimate.
   const startIndex =
-    state.playlistId && state.processedIndex >= 0 ? state.processedIndex + 1 : 0;
+    !isRerun && state.playlistId && state.processedIndex >= 0
+      ? state.processedIndex + 1
+      : 0;
 
   await patchState({
     phase: "insert",
     target: effectiveTarget,
     quotaExceeded: false,
     running: true,
+    // A re-run must not inherit the finished run's playlist, cursor or tallies.
+    ...(isRerun ? { playlistId: null, processedIndex: -1, report: null } : {}),
     // Fixed at commit time: processedIndex is an index into this same selected list,
     // so deriving the total later from a live checkbox count could disagree with it.
     insertTotal: selectedEntries.length,
+    playlistTitle,
     phaseStartedAt: Date.now(),
     phaseStartDone: startIndex,
     lastStatus: { text: "Signing in...", isError: false },
@@ -195,7 +223,9 @@ async function handleStartInsert(target) {
       target: effectiveTarget,
       entries: selectedEntries,
       startIndex,
-      seedReport: state.report,
+      // `state` is the pre-write snapshot, so a re-run would otherwise seed the new
+      // tallies with the finished run's counts and report 16 added instead of 8.
+      seedReport: isRerun ? null : state.report,
       onPlaylistCreated: async (playlistId) => {
         if (runId !== currentRunId) throw staleRun();
         await patchState({
@@ -236,7 +266,7 @@ async function handleStartInsert(target) {
           playlistId,
           report,
           running: false,
-          lastStatus: { text: "Done.", isError: false },
+          lastStatus: { text: completionText(report, playlistTitle), isError: false },
         });
       },
     });

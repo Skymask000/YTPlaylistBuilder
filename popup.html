@@ -7,7 +7,18 @@
   </head>
   <body>
     <div id="app">
-      <h1>YT Playlist Builder</h1>
+      <div id="app-header">
+        <h1>YT Playlist Builder</h1>
+        <!-- U+2615 + U+FE0E: the variation selector forces text presentation, so this
+             stays a monochrome glyph instead of rendering as a colour emoji. -->
+        <button id="tip-btn" title="Support this extension" aria-expanded="false">&#x2615;&#xFE0E; = &#x2665;&#xFE0E;</button>
+      </div>
+
+      <section id="tip-panel" hidden>
+        <p>This extension is free and always will be. A coffee is always appreciated.</p>
+        <p><a id="tip-link" href="https://revolut.me/rebe000" target="_blank" rel="noopener noreferrer">revolut.me/rebe000</a></p>
+        <img id="tip-qr" src="icons/tip-qr.png" width="150" height="150" alt="Revolut QR code for revolut.me/rebe000" />
+      </section>
 
       <section id="account-section">
         <div id="account-info">
@@ -35,7 +46,7 @@
       </section>
 
       <section id="target-section">
-        <fieldset>
+        <fieldset id="target-fieldset">
           <legend>Playlist target</legend>
           <label>
             <input type="radio" name="target" value="create" checked />
@@ -63,8 +74,8 @@
       </section>
 
       <section id="progress-section" hidden>
-        <div id="progress-bar" hidden><div id="progress-fill"></div></div>
-        <p id="progress-status"><span id="progress-line">Searching...</span><span id="progress-eta" hidden></span></p>
+        <div id="progress-bar" class="progress-bar" hidden><div id="progress-fill" class="progress-fill"></div></div>
+        <p id="progress-status" class="progress-status"><span id="progress-line">Searching...</span><span id="progress-eta" class="progress-eta" hidden></span></p>
       </section>
 
       <section id="results-section" hidden>
@@ -77,17 +88,17 @@
         </table>
       </section>
 
+      <p id="status" role="status"></p>
+
       <section id="commit-section" hidden>
         <button id="add-all-btn">Add all to playlist</button>
+        <button id="open-playlist-btn" hidden>Open playlist</button>
       </section>
 
-      <section id="report-section" hidden>
-        <h2>Report</h2>
-        <pre id="report-text"></pre>
-        <button id="copy-report-btn">Copy report</button>
+      <section id="insert-progress-section" hidden>
+        <div id="insert-progress-bar" class="progress-bar"><div id="insert-progress-fill" class="progress-fill"></div></div>
+        <p id="insert-progress-status" class="progress-status"><span id="insert-progress-line"></span><span id="insert-progress-eta" class="progress-eta" hidden></span></p>
       </section>
-
-      <p id="status" role="status"></p>
 
       <section id="reset-section" hidden>
         <button id="reset-btn">Reset</button>

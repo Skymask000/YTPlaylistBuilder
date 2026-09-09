@@ -118,9 +118,13 @@ export async function runInsertPhase({
 export function formatReport(report, entries) {
   const noMatchList = entries.filter((e) => e.noMatch).map((e) => `  - ${e.query}`);
   const failedList = report.failed.map((f) => `  - ${f.query} (${f.reason})`);
-  const lines = [
-    `Added: ${report.added} | Skipped (already in playlist): ${report.alreadyInPlaylist} | No match: ${report.noMatch} | Failed: ${report.failed.length}`,
-  ];
+  // Only the categories that actually happened. A clean run is the common case, and
+  // three zeroes next to the one number that matters just buries it.
+  const counts = [`Added: ${report.added}`];
+  if (report.alreadyInPlaylist) counts.push(`Skipped (already in playlist): ${report.alreadyInPlaylist}`);
+  if (report.noMatch) counts.push(`No match: ${report.noMatch}`);
+  if (report.failed.length) counts.push(`Failed: ${report.failed.length}`);
+  const lines = [counts.join(" | ")];
   if (noMatchList.length) lines.push("", "No match:", ...noMatchList);
   if (failedList.length) lines.push("", "Failed:", ...failedList);
   return lines.join("\n");

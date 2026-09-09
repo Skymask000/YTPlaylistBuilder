@@ -1,4 +1,3 @@
-import { formatReport } from "./src/runner.js";
 import { getAuthToken, clearAuthToken, NotSignedInError } from "./src/auth.js";
 import { listMyPlaylists, getMyChannel } from "./src/ytApi.js";
 
@@ -18,11 +17,17 @@ const newTitleEl = document.getElementById("new-title");
 const newPrivacyEl = document.getElementById("new-privacy");
 const existingPlaylistEl = document.getElementById("existing-playlist");
 const loadPlaylistsBtn = document.getElementById("load-playlists-btn");
+const targetFieldset = document.getElementById("target-fieldset");
+const tipBtn = document.getElementById("tip-btn");
+const tipPanel = document.getElementById("tip-panel");
 const commitSection = document.getElementById("commit-section");
 const addAllBtn = document.getElementById("add-all-btn");
-const reportSection = document.getElementById("report-section");
-const reportTextEl = document.getElementById("report-text");
-const copyReportBtn = document.getElementById("copy-report-btn");
+const openPlaylistBtn = document.getElementById("open-playlist-btn");
+const insertProgressSection = document.getElementById("insert-progress-section");
+const insertProgressBar = document.getElementById("insert-progress-bar");
+const insertProgressFill = document.getElementById("insert-progress-fill");
+const insertProgressLine = document.getElementById("insert-progress-line");
+const insertProgressEta = document.getElementById("insert-progress-eta");
 const resetSection = document.getElementById("reset-section");
 const resetBtn = document.getElementById("reset-btn");
 const signoutBtn = document.getElementById("signout-btn");
@@ -36,6 +41,7 @@ const confirmCancelBtn = document.getElementById("confirm-cancel-btn");
 const confirmProceedBtn = document.getElementById("confirm-proceed-btn");
 
 const IDENTITY_KEY = "authIdentity";
+const ADD_ALL_LABEL = "Add all to playlist";
 
 function renderIdentity(identity) {
   const signedIn = !!(identity && identity.title);
@@ -145,29 +151,30 @@ function setTargetSelection(target) {
   }
 }
 
-// How far through the current phase we are, or null when there's nothing to show.
-// Search counts songs scraped; insert counts songs written to the playlist.
-function phaseProgress(state) {
-  if (!state) return null;
-  if (state.phase === "search") {
-    return { done: state.searchIndex || 0, total: state.searchTotal || 0 };
-  }
-  if (state.phase === "insert" || state.phase === "done") {
-    const total = state.insertTotal || 0;
-    // "done" is terminal, so the bar reads full regardless of where the last
-    // processedIndex landed (skipped and failed songs still count as processed).
-    const done =
-      state.phase === "done" ? total : Math.max(0, (state.processedIndex ?? -1) + 1);
-    return { done, total };
-  }
-  return null;
+// Each phase owns its own bar, so both are computed independently of the current
+// phase: the search bar stays on screen, full and green, while the insert runs.
+function searchProgress(state) {
+  const total = state?.searchTotal || 0;
+  if (!total) return null;
+  return { done: Math.min(state.searchIndex || 0, total), total };
+}
+
+function insertProgress(state) {
+  if (!state || (state.phase !== "insert" && state.phase !== "done")) return null;
+  const total = state.insertTotal || 0;
+  if (!total) return null;
+  // "done" is terminal, so the bar reads full regardless of where the last
+  // processedIndex landed (skipped and failed songs still count as processed).
+  const done =
+    state.phase === "done" ? total : Math.max(0, (state.processedIndex ?? -1) + 1);
+  return { done, total };
 }
 
 // Rough time-to-finish from the rate this phase has actually achieved, rather than
 // from the delay constants — a blocked search costs an extra 5s retry, so a constant
 // would read as confidently wrong precisely when a run is struggling.
-function etaText(state, done, total) {
-  if (!state.running || !state.phaseStartedAt) return "";
+function etaText(state, done, total, phaseActive) {
+  if (!state.running || !phaseActive || !state.phaseStartedAt) return "";
   const doneThisPhase = done - (state.phaseStartDone || 0);
   // One sample is enough. Requiring two meant a 2-song run finished before the
   // estimate ever qualified, so short lists never saw it at all.
@@ -179,26 +186,25 @@ function etaText(state, done, total) {
   return `~${mins} min remaining`;
 }
 
-function renderProgressBar(state) {
-  const p = phaseProgress(state);
-  if (!p || !p.total) {
-    progressBar.hidden = true;
-    progressEta.hidden = true;
+// Paints one bar + its ETA. Colour is meaningful: blue while working, green once
+// finished, red only when the phase actually stopped short. A run that ends part-way
+// keeps its bar on screen — hiding it would drop the evidence of how far it got.
+function paintBar(bar, fill, etaEl, state, p, phaseActive) {
+  if (!p) {
+    bar.hidden = true;
+    etaEl.hidden = true;
     return;
   }
-  progressBar.hidden = false;
-  progressFill.style.width = `${Math.round((p.done / p.total) * 100)}%`;
+  bar.hidden = false;
+  fill.style.width = `${Math.round((p.done / p.total) * 100)}%`;
 
-  // Colour is meaningful: blue while working, green once finished, red only when the
-  // phase actually stopped short. A run that ends part-way keeps the bar on screen —
-  // hiding it would drop the one piece of evidence showing how far it got.
-  const failed = Boolean(state.lastStatus?.isError) && !state.running;
-  progressFill.classList.toggle("failed", failed);
-  progressFill.classList.toggle("complete", !failed && p.done >= p.total);
+  const failed = Boolean(state.lastStatus?.isError) && !state.running && phaseActive;
+  fill.classList.toggle("failed", failed);
+  fill.classList.toggle("complete", !failed && p.done >= p.total);
 
-  const eta = etaText(state, p.done, p.total);
-  progressEta.textContent = eta;
-  progressEta.hidden = !eta;
+  const eta = etaText(state, p.done, p.total, phaseActive);
+  etaEl.textContent = eta;
+  etaEl.hidden = !eta;
 }
 
 // Single render entry point. Called on load and on every pendingRun change.
@@ -209,7 +215,7 @@ function renderFromState(state) {
     resultsSection.hidden = true;
     resultsBody.innerHTML = "";
     progressSection.hidden = true;
-    reportSection.hidden = true;
+    insertProgressSection.hidden = true;
     commitSection.hidden = true;
     resetSection.hidden = true;
     return;
@@ -233,27 +239,73 @@ function renderFromState(state) {
     resultsBody.innerHTML = "";
   }
 
-  if (state.lastStatus) {
-    progressSection.hidden = false;
+  // `lastStatus` is a single field, so route it to whichever phase is current and give
+  // the other line a derived summary — otherwise starting an insert would overwrite the
+  // search's result text with "Adding 1 / 8 …".
+  const inInsert = state.phase === "insert" || state.phase === "done";
+  const search = searchProgress(state);
+  const insert = insertProgress(state);
+
+  progressSection.hidden = !(state.lastStatus || search);
+  if (inInsert) {
+    progressLine.textContent = search
+      ? `Search complete — ${search.total} entries.`
+      : "";
+  } else if (state.lastStatus) {
     progressLine.textContent = state.lastStatus.text;
   }
-  renderProgressBar(state);
+  paintBar(progressBar, progressFill, progressEta, state, search, !inInsert);
 
-  if (state.phase === "search" && entries.length && state.searchIndex >= entries.length) {
-    // Search finished but user hasn't started insert yet — expose Add-all.
-    commitSection.hidden = false;
+  insertProgressSection.hidden = !insert;
+  if (insert) {
+    insertProgressLine.textContent = state.lastStatus?.text || "";
+  }
+  paintBar(
+    insertProgressBar,
+    insertProgressFill,
+    insertProgressEta,
+    state,
+    insert,
+    inInsert,
+  );
+
+  if (state.phase === "search") {
+    // Expose Add-all once the search has STOPPED — finished, or stopped part-way,
+    // both of which leave rows worth adding. Not `searchIndex >= entries.length`:
+    // the SW sets searchIndex to the entry count on every tick, so that was true
+    // throughout the run and the button appeared immediately.
+    commitSection.hidden = !(entries.length && !state.running);
   } else if (state.phase === "insert" || state.phase === "done") {
     commitSection.hidden = false;
   } else {
     commitSection.hidden = true;
   }
 
-  if (state.phase === "done" && state.report) {
-    reportSection.hidden = false;
-    reportTextEl.textContent = formatReport(state.report, entries);
-  } else {
-    reportSection.hidden = true;
-  }
+  // Once a run is committed there is nothing left to add, so Add-all goes inert and
+  // the playlist becomes reachable instead. Picking a different target re-arms it —
+  // see the target-change listeners.
+  const committed = state.phase === "done" && Boolean(state.playlistId);
+  const adding = Boolean(state.running) && inInsert;
+  addAllBtn.disabled = committed || adding;
+  addAllBtn.textContent = adding
+    ? "Adding to playlist"
+    : committed
+      ? "Added to playlist"
+      : ADD_ALL_LABEL;
+  // Locked while adding: the destination is already fixed in state, so editing these
+  // mid-run would change nothing and only suggest otherwise. Disabling the fieldset
+  // covers every control inside it. Stays editable once done, so picking a different
+  // playlist can re-arm Add-all.
+  targetFieldset.disabled = adding;
+
+  // The selection is locked in the moment Add-all is clicked: insertTotal and
+  // processedIndex both index the list captured then, so letting the user tick rows
+  // mid-run would desync the progress bar from what's actually being added.
+  const selectAllBox = document.getElementById("select-all");
+  if (selectAllBox) selectAllBox.disabled = adding;
+  for (const cb of resultsBody.querySelectorAll(".row-checkbox")) cb.disabled = adding;
+  openPlaylistBtn.hidden = !committed;
+  openPlaylistBtn.dataset.playlistId = state.playlistId || "";
 }
 
 // Wire the "select all" master checkbox
@@ -264,15 +316,38 @@ document.getElementById("select-all").addEventListener("change", async (e) => {
   });
 });
 
+// Choosing a different destination re-arms Add-all after a committed run, so the same
+// results can be sent to a second playlist. Popup-local: nothing is persisted until
+// the insert actually starts.
+function rearmAddAll() {
+  addAllBtn.disabled = false;
+  addAllBtn.textContent = ADD_ALL_LABEL;
+}
+
 // Wire the radio-mode toggle
 for (const radio of document.querySelectorAll('input[name="target"]')) {
   radio.addEventListener("change", (e) => {
     const mode = e.target.value;
     createFields.hidden = mode !== "create";
     existingFields.hidden = mode !== "existing";
+    rearmAddAll();
   });
 }
 existingFields.hidden = true;
+newTitleEl.addEventListener("input", rearmAddAll);
+newPrivacyEl.addEventListener("change", rearmAddAll);
+existingPlaylistEl.addEventListener("change", rearmAddAll);
+
+tipBtn.addEventListener("click", () => {
+  const open = tipPanel.hidden;
+  tipPanel.hidden = !open;
+  tipBtn.setAttribute("aria-expanded", String(open));
+});
+
+openPlaylistBtn.addEventListener("click", () => {
+  const id = openPlaylistBtn.dataset.playlistId;
+  if (id) window.open(`https://www.youtube.com/playlist?list=${id}`, "_blank");
+});
 
 loadPlaylistsBtn.addEventListener("click", async () => {
   loadPlaylistsBtn.disabled = true;
@@ -292,6 +367,8 @@ loadPlaylistsBtn.addEventListener("click", async () => {
         const opt = document.createElement("option");
         opt.value = p.id;
         opt.textContent = `${p.title} (${p.itemCount} items)`;
+        // Kept separately: the label carries an item count the final line shouldn't quote.
+        opt.dataset.title = p.title;
         existingPlaylistEl.appendChild(opt);
       }
     }
@@ -317,7 +394,12 @@ function getTarget() {
       privacyStatus: newPrivacyEl.value,
     };
   }
-  return { mode: "existing", playlistId: existingPlaylistEl.value };
+  const opt = existingPlaylistEl.selectedOptions[0];
+  return {
+    mode: "existing",
+    playlistId: existingPlaylistEl.value,
+    title: opt?.dataset.title || "",
+  };
 }
 
 // What a new search would cost the user, given the run currently on screen.
@@ -432,7 +514,11 @@ addAllBtn.addEventListener("click", async () => {
     return;
   }
 
+  // Set here as well as in renderFromState: interactive sign-in can take seconds
+  // before any state write lands, and the button shouldn't sit there looking idle.
   addAllBtn.disabled = true;
+  addAllBtn.textContent = "Adding to playlist";
+  targetFieldset.disabled = true;
   statusEl.textContent = "Signing in...";
   try {
     // Seed the token cache with a user-gesture-triggered interactive flow;
@@ -442,20 +528,15 @@ addAllBtn.addEventListener("click", async () => {
   } catch (e) {
     const prefix = e instanceof NotSignedInError ? "Sign-in error" : "Error";
     statusEl.textContent = `${prefix}: ${e.message}`;
-  } finally {
+    // Only re-enable when the insert never started. On the success path the run is
+    // now live and renderFromState keeps the button inert until it finishes —
+    // re-enabling here would let a second click fire mid-run.
     addAllBtn.disabled = false;
+    addAllBtn.textContent = ADD_ALL_LABEL;
+    targetFieldset.disabled = false;
   }
 });
 
-copyReportBtn.addEventListener("click", async () => {
-  try {
-    await navigator.clipboard.writeText(reportTextEl.textContent);
-    copyReportBtn.textContent = "Copied!";
-  } catch (e) {
-    copyReportBtn.textContent = "Copy failed";
-  }
-  setTimeout(() => (copyReportBtn.textContent = "Copy report"), 1500);
-});
 
 resetBtn.addEventListener("click", async () => {
   if (!confirm("Clear the current run and start over?")) return;
