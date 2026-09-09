@@ -6,6 +6,9 @@ const inputEl = document.getElementById("songs-input");
 const goBtn = document.getElementById("go-btn");
 const progressSection = document.getElementById("progress-section");
 const progressLine = document.getElementById("progress-line");
+const progressBar = document.getElementById("progress-bar");
+const progressFill = document.getElementById("progress-fill");
+const progressEta = document.getElementById("progress-eta");
 const resultsSection = document.getElementById("results-section");
 const resultsBody = document.querySelector("#results-table tbody");
 const statusEl = document.getElementById("status");
@@ -26,6 +29,11 @@ const signoutBtn = document.getElementById("signout-btn");
 const addAccountBtn = document.getElementById("addaccount-btn");
 const accountStatusEl = document.getElementById("account-status");
 const accountAvatarEl = document.getElementById("account-avatar");
+const confirmDialog = document.getElementById("confirm-dialog");
+const confirmMessageEl = document.getElementById("confirm-message");
+const confirmWarningEl = document.getElementById("confirm-warning");
+const confirmCancelBtn = document.getElementById("confirm-cancel-btn");
+const confirmProceedBtn = document.getElementById("confirm-proceed-btn");
 
 const IDENTITY_KEY = "authIdentity";
 
@@ -137,6 +145,62 @@ function setTargetSelection(target) {
   }
 }
 
+// How far through the current phase we are, or null when there's nothing to show.
+// Search counts songs scraped; insert counts songs written to the playlist.
+function phaseProgress(state) {
+  if (!state) return null;
+  if (state.phase === "search") {
+    return { done: state.searchIndex || 0, total: state.searchTotal || 0 };
+  }
+  if (state.phase === "insert" || state.phase === "done") {
+    const total = state.insertTotal || 0;
+    // "done" is terminal, so the bar reads full regardless of where the last
+    // processedIndex landed (skipped and failed songs still count as processed).
+    const done =
+      state.phase === "done" ? total : Math.max(0, (state.processedIndex ?? -1) + 1);
+    return { done, total };
+  }
+  return null;
+}
+
+// Rough time-to-finish from the rate this phase has actually achieved, rather than
+// from the delay constants — a blocked search costs an extra 5s retry, so a constant
+// would read as confidently wrong precisely when a run is struggling.
+function etaText(state, done, total) {
+  if (!state.running || !state.phaseStartedAt) return "";
+  const doneThisPhase = done - (state.phaseStartDone || 0);
+  // One sample is enough. Requiring two meant a 2-song run finished before the
+  // estimate ever qualified, so short lists never saw it at all.
+  if (doneThisPhase < 1 || done >= total) return "";
+  const msPer = (Date.now() - state.phaseStartedAt) / doneThisPhase;
+  const secs = Math.round((msPer * (total - done)) / 1000);
+  if (secs < 60) return `~${Math.max(5, Math.round(secs / 5) * 5)}s remaining`;
+  const mins = Math.round(secs / 60);
+  return `~${mins} min remaining`;
+}
+
+function renderProgressBar(state) {
+  const p = phaseProgress(state);
+  if (!p || !p.total) {
+    progressBar.hidden = true;
+    progressEta.hidden = true;
+    return;
+  }
+  progressBar.hidden = false;
+  progressFill.style.width = `${Math.round((p.done / p.total) * 100)}%`;
+
+  // Colour is meaningful: blue while working, green once finished, red only when the
+  // phase actually stopped short. A run that ends part-way keeps the bar on screen —
+  // hiding it would drop the one piece of evidence showing how far it got.
+  const failed = Boolean(state.lastStatus?.isError) && !state.running;
+  progressFill.classList.toggle("failed", failed);
+  progressFill.classList.toggle("complete", !failed && p.done >= p.total);
+
+  const eta = etaText(state, p.done, p.total);
+  progressEta.textContent = eta;
+  progressEta.hidden = !eta;
+}
+
 // Single render entry point. Called on load and on every pendingRun change.
 function renderFromState(state) {
   if (!state) {
@@ -173,6 +237,7 @@ function renderFromState(state) {
     progressSection.hidden = false;
     progressLine.textContent = state.lastStatus.text;
   }
+  renderProgressBar(state);
 
   if (state.phase === "search" && entries.length && state.searchIndex >= entries.length) {
     // Search finished but user hasn't started insert yet — expose Add-all.
@@ -255,18 +320,86 @@ function getTarget() {
   return { mode: "existing", playlistId: existingPlaylistEl.value };
 }
 
-goBtn.addEventListener("click", async () => {
-  const { state: existing } = await chrome.runtime.sendMessage({ type: "getState" });
-  if (existing) {
-    statusEl.textContent = "A previous run is still on screen — click Reset first.";
-    return;
+// What a new search would cost the user, given the run currently on screen.
+// null = nothing worth protecting, so Search just proceeds and replaces the state.
+function describeCostOfNewSearch(state) {
+  if (!state) return null;
+
+  if (state.running) {
+    return {
+      message:
+        state.phase === "insert"
+          ? "A run is still adding songs to your playlist."
+          : "A search is still running.",
+      warning: "Starting a new search will stop the run in progress.",
+      proceedLabel: "Stop and search",
+    };
   }
 
+  // Committed: the songs are already in a playlist on YouTube, so there is nothing
+  // left on screen that a new search could destroy. Replace it silently.
+  if (state.phase === "done") return null;
+
+  const n = (state.entries || []).length;
+  if (!n) return null;
+
+  // An insert that stopped part-way — some songs made it to YouTube, the rest didn't.
+  if (state.playlistId) {
+    return {
+      message: "A part-finished run is on screen — some songs were added to a playlist, the rest weren't.",
+      warning: "Starting a new search will discard what's left of it.",
+      proceedLabel: "Discard and search",
+    };
+  }
+
+  // Search finished, nothing written to YouTube. Worth protecting: those rows cost
+  // minutes of deliberately-throttled scraping to produce.
+  return {
+    message: `${n} search result${n === 1 ? "" : "s"} on screen haven't been added to a playlist yet.`,
+    warning: "Starting a new search will discard them.",
+    proceedLabel: "Discard and search",
+  };
+}
+
+// In-popup confirm. A native confirm() can't render the warning in red, and the popup
+// is short enough that an overlay would be overkill — this is just a section that
+// sits directly above the Search button, so the answer appears where the user clicked.
+let confirmResolve = null;
+
+function askConfirm({ message, warning, proceedLabel }) {
+  confirmMessageEl.textContent = message;
+  confirmWarningEl.textContent = warning;
+  confirmProceedBtn.textContent = proceedLabel;
+  confirmDialog.hidden = false;
+  confirmDialog.scrollIntoView({ block: "nearest" });
+  return new Promise((resolve) => {
+    confirmResolve = resolve;
+  });
+}
+
+function closeConfirm(answer) {
+  confirmDialog.hidden = true;
+  const resolve = confirmResolve;
+  confirmResolve = null;
+  if (resolve) resolve(answer);
+}
+
+confirmCancelBtn.addEventListener("click", () => closeConfirm(false));
+confirmProceedBtn.addEventListener("click", () => closeConfirm(true));
+
+goBtn.addEventListener("click", async () => {
   const text = inputEl.value;
   if (!text.trim()) {
     statusEl.textContent = "Paste at least one song.";
     return;
   }
+
+  // Asked before the quota prompt: no point warning about cost for a search the
+  // user may be about to cancel.
+  const cost = describeCostOfNewSearch(
+    (await chrome.runtime.sendMessage({ type: "getState" })).state,
+  );
+  if (cost && !(await askConfirm(cost))) return;
 
   const roughCount = text.split(/\r?\n/).filter((l) => l.trim() && !/^\d+\.\s/.test(l.trim())).length;
   if (roughCount > 100) {
@@ -277,6 +410,8 @@ goBtn.addEventListener("click", async () => {
   }
 
   statusEl.textContent = "";
+  // startSearch writes a fresh initialState and bumps the SW's run id, which both
+  // clears the old rows and unwinds any loop still running — no reset call needed.
   await chrome.runtime.sendMessage({ type: "startSearch", text });
 });
 
@@ -324,6 +459,8 @@ copyReportBtn.addEventListener("click", async () => {
 
 resetBtn.addEventListener("click", async () => {
   if (!confirm("Clear the current run and start over?")) return;
+  // A confirm asking about a run that no longer exists would be nonsense.
+  closeConfirm(false);
   await chrome.runtime.sendMessage({ type: "reset" });
   statusEl.textContent = "Reset.";
 });

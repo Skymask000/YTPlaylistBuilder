@@ -2,6 +2,16 @@
   color-scheme: light dark;
   font-family: system-ui, sans-serif;
   font-size: 13px;
+
+  /* Shared with YT Playlist Search — same values, same meanings, so the two
+     extensions read as one family. Colour carries meaning here: blue = work in
+     progress, green = finished, red = something failed. Red is never used for
+     ordinary progress. */
+  --progress: #3b82f6;
+  --success: #3fa66a;
+  --danger: #d9534f;
+  --hover: rgba(128, 128, 128, 0.12);
+  --muted: #888;
 }
 body {
   margin: 0;
@@ -47,7 +57,7 @@ th, td {
   vertical-align: top;
 }
 tr.low-confidence td { color: #b26b00; }
-tr.no-match td { color: #a00; }
+tr.no-match td { color: var(--danger); }
 tr.deselected td:not(:first-child) { opacity: 0.4; text-decoration: line-through; }
 #results-table th:first-child, #results-table td:first-child { width: 24px; text-align: center; }
 .row-checkbox, #select-all { margin: 0; cursor: pointer; }
@@ -56,6 +66,42 @@ fieldset { border: 1px solid rgba(128,128,128,0.4); padding: 6px 10px; }
 legend { font-weight: 500; padding: 0 4px; }
 #create-fields, #existing-fields { margin: 4px 0 4px 20px; display: flex; gap: 6px; flex-wrap: wrap; }
 #create-fields[hidden], #existing-fields[hidden] { display: none; }
+#confirm-dialog {
+  margin: 8px 0;
+  padding: 8px 10px;
+  /* --danger is a mid-tone red, legible on both the light and dark ground the
+     popup can be painted on, so this needs no per-theme override. */
+  border: 1px solid var(--danger);
+  border-radius: 4px;
+  background: rgba(217, 83, 79, 0.1);
+}
+/* An ID selector that sets `display` would beat the UA [hidden] rule. This one doesn't
+   set display, but keep the counterpart so a later tweak can't silently un-hide it. */
+#confirm-dialog[hidden] { display: none; }
+#confirm-dialog p { margin: 0 0 6px 0; }
+#confirm-warning { color: var(--danger); }
+#confirm-actions { display: flex; gap: 6px; }
+#confirm-actions button { margin-top: 0; }
+
+/* Progress bar — same structure, colours and meanings as YT Playlist Search. */
+#progress-bar {
+  background: var(--hover);
+  border-radius: 3px;
+  height: 6px;
+  overflow: hidden;
+}
+#progress-bar[hidden] { display: none; }
+#progress-fill {
+  background: var(--progress);
+  height: 100%;
+  width: 0%;
+  transition: width 200ms, background 200ms;
+}
+#progress-fill.complete { background: var(--success); }
+#progress-fill.failed { background: var(--danger); }
+#progress-status { margin: 6px 0 0 0; }
+#progress-eta { color: var(--muted); }
+#progress-eta::before { content: " · "; }
 #new-title { flex: 1; min-width: 200px; padding: 4px 6px; }
 #account-section {
   display: flex;

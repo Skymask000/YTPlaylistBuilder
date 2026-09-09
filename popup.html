@@ -23,6 +23,14 @@
       <section id="input-section">
         <label for="songs-input">Paste your song list:</label>
         <textarea id="songs-input" rows="10" placeholder="Black Sabbath - Iron Man&#10;Metallica - One&#10;&#10;or numbered blocks:&#10;1. Black Sabbath&#10;&#10;Iron Man&#10;War Pigs"></textarea>
+        <section id="confirm-dialog" hidden>
+          <p id="confirm-message"></p>
+          <p><strong id="confirm-warning"></strong></p>
+          <div id="confirm-actions">
+            <button id="confirm-cancel-btn">Cancel</button>
+            <button id="confirm-proceed-btn">Discard and search</button>
+          </div>
+        </section>
         <button id="go-btn">Search YouTube</button>
       </section>
 
@@ -55,7 +63,8 @@
       </section>
 
       <section id="progress-section" hidden>
-        <p id="progress-line">Searching...</p>
+        <div id="progress-bar" hidden><div id="progress-fill"></div></div>
+        <p id="progress-status"><span id="progress-line">Searching...</span><span id="progress-eta" hidden></span></p>
       </section>
 
       <section id="results-section" hidden>
