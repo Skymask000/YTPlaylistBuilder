@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "YT Playlist Builder",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Turn a pasted list of songs into a YouTube playlist.",
   "action": {
     "default_popup": "popup.html",
